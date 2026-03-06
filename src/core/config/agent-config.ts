@@ -2,6 +2,7 @@ export type OpenAICompatibleConfig = {
   baseURL: string;
   apiKey: string;
   model: string;
+  profile?: "openai" | "deepseek" | "qwen";
   temperature?: number;
   maxTokens?: number;
 };
@@ -27,6 +28,7 @@ export function loadAppConfig(env: Record<string, string | undefined>, argv: rea
       baseURL: requireEnv(env, "OPENAI_BASE_URL"),
       apiKey: env.OPENAI_API_KEY ?? "dummy",
       model: requireEnv(env, "OPENAI_MODEL"),
+      profile: parseProfile(env.OPENAI_COMPAT_PROFILE),
       temperature: parseOptionalNumber(env.OPENAI_TEMPERATURE),
       maxTokens: parseOptionalNumber(env.OPENAI_MAX_TOKENS),
     },
@@ -72,4 +74,16 @@ function parseOptionalNumber(value: string | undefined): number | undefined {
 function emptyToUndefined(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function parseProfile(value: string | undefined): "openai" | "deepseek" | "qwen" | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value === "openai" || value === "deepseek" || value === "qwen") {
+    return value;
+  }
+
+  throw new Error(`Unsupported OPENAI_COMPAT_PROFILE "${value}". Expected "openai", "deepseek", or "qwen".`);
 }
