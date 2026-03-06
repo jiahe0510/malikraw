@@ -5,26 +5,26 @@ import { parseSkillMarkdown } from "../index.js";
 
 test("parseSkillMarkdown reads frontmatter and instruction body", () => {
   const skill = parseSkillMarkdown(`---
-name: triage_incident
-description: incident triage
+name: workspace_operator
+description: workspace operations
 promptRole: developer
-tags: incident, production
+tags: workspace, shell
 version: 1
 owner: runtime
-allowedTools: lookup_service_status, check_logs
-examples: Start with observed impact, Mark unknowns explicitly
+allowedTools: read_file, exec_shell
+examples: Read before editing, Explain command purpose
 ---
 
-Use facts first.
-Call out unknowns clearly.
+Inspect the workspace first.
+Explain each step clearly.
 `);
 
-  assert.equal(skill.name, "triage_incident");
-  assert.equal(skill.description, "incident triage");
+  assert.equal(skill.name, "workspace_operator");
+  assert.equal(skill.description, "workspace operations");
   assert.equal(skill.promptRole, "developer");
   assert.equal(skill.metadata?.version, "1");
-  assert.deepEqual(skill.metadata?.tags, ["incident", "production"]);
-  assert.deepEqual(skill.metadata?.allowedTools, ["lookup_service_status", "check_logs"]);
-  assert.deepEqual(skill.metadata?.examples, ["Start with observed impact", "Mark unknowns explicitly"]);
-  assert.match(skill.instruction, /Use facts first/);
+  assert.deepEqual(skill.metadata?.tags, ["workspace", "shell"]);
+  assert.deepEqual(skill.metadata?.allowedTools, ["read_file", "exec_shell"]);
+  assert.deepEqual(skill.metadata?.examples, ["Read before editing", "Explain command purpose"]);
+  assert.match(skill.instruction, /Inspect the workspace first/);
 });

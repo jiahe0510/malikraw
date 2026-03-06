@@ -40,13 +40,14 @@ test("tool registry returns validation errors in envelope", async () => {
 test("buildPrompt includes skills, tool summary, memory, and user request", () => {
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(parseSkillMarkdown(`---
-name: triage_incident
-description: incident flow
+name: workspace_operator
+description: workspace flow
 promptRole: developer
+allowedTools: read_file, edit_file
 ---
 
-use facts first`));
-  const selected = skillRegistry.select(["triage_incident"]);
+read before edit`));
+  const selected = skillRegistry.select(["workspace_operator"]);
   if (!selected.ok) {
     throw new Error(selected.error.message);
   }
@@ -54,27 +55,30 @@ use facts first`));
 
   const prompt = buildPrompt({
     globalPolicy: "global policy",
-    userRequest: "investigate checkout",
+    userRequest: "update a file",
     activeSkills: selected.skills,
-    toolSummary: "- lookup_service_status: status lookup",
+    toolSummary: "- read_file: read file\n- edit_file: edit file",
     stateSummary: "sev-2",
     memorySummary: "recent deploy",
   });
 
-  assert.equal(prompt.activeSkillIds[0], "triage_incident");
+  assert.equal(prompt.activeSkillIds[0], "workspace_operator");
   assert.equal(prompt.messages.at(-1)?.role, "user");
   assert.match(prompt.messages.map((message) => message.content).join("\n"), /recent deploy/);
+  assert.match(prompt.messages.map((message) => message.content).join("\n"), /Runtime Context/);
+  assert.match(prompt.messages.map((message) => message.content).join("\n"), /Active Skills/);
+  assert.doesNotMatch(prompt.messages.map((message) => message.content).join("\n"), /<skill name=/);
 });
 
 test("getVisibleToolNames respects allowedTools on active skills", () => {
   const skill = parseSkillMarkdown(`---
-name: triage_incident
-description: incident flow
+name: workspace_operator
+description: workspace flow
 promptRole: developer
-allowedTools: lookup_service_status
+allowedTools: read_file, edit_file
 ---
 
-facts first`);
+read before edit`);
 
   const visible = getVisibleToolNames([{
     name: skill.name,
@@ -82,31 +86,32 @@ facts first`);
     promptRole: skill.promptRole ?? "developer",
     instruction: skill.instruction,
     metadata: skill.metadata,
-  }], ["lookup_service_status", "summarize_note_chunk"]);
+  }], ["read_file", "edit_file", "exec_shell"]);
 
-  assert.deepEqual(visible, ["lookup_service_status"]);
+  assert.deepEqual(visible, ["read_file", "edit_file"]);
 });
 
 test("runAgentLoop executes tool calls and returns final output", async () => {
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(defineTool({
-    name: "lookup_service_status",
-    description: "status lookup",
+    name: "read_file",
+    description: "read a file",
     inputSchema: s.object(
-      { service: s.string({ minLength: 1 }) },
-      { required: ["service"] },
+      { path: s.string({ minLength: 1 }) },
+      { required: ["path"] },
     ),
-    execute: ({ service }) => ({ service, status: "degraded" }),
+    execute: ({ path }) => ({ path, content: "hello" }),
   }));
 
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(parseSkillMarkdown(`---
-name: triage_incident
-description: incident flow
+name: workspace_operator
+description: workspace flow
 promptRole: developer
+allowedTools: read_file
 ---
 
-facts first`));
+read before edit`));
 
   class FakeModel implements AgentModel {
     private turn = 0;
@@ -119,8 +124,8 @@ facts first`));
           toolCalls: [
             {
               id: "call_1",
-              name: "lookup_service_status",
-              input: { service: "checkout" },
+              name: "read_file",
+              input: { path: "README.md" },
             },
           ],
         };
@@ -138,13 +143,13 @@ facts first`));
     model: new FakeModel(),
     toolRegistry,
     skillRegistry,
-    skillRouter: new ManualSkillRouter(["triage_incident"]),
+    skillRouter: new ManualSkillRouter(["workspace_operator"]),
     globalPolicy: "global policy",
-    userRequest: "investigate checkout",
+    userRequest: "read a file",
   });
 
-  assert.equal(result.activeSkillIds[0], "triage_incident");
+  assert.equal(result.activeSkillIds[0], "workspace_operator");
   assert.equal(result.toolResults.length, 1);
-  assert.deepEqual(result.visibleToolNames, ["lookup_service_status"]);
-  assert.match(result.finalOutput, /lookup_service_status/);
+  assert.deepEqual(result.visibleToolNames, ["read_file"]);
+  assert.match(result.finalOutput, /read_file/);
 });
