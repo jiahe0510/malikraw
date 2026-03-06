@@ -1,8 +1,10 @@
+import type { ProviderProfile } from "../providers/compatibility-profile.js";
+
 export type OpenAICompatibleConfig = {
   baseURL: string;
   apiKey: string;
   model: string;
-  profile?: "openai" | "deepseek" | "qwen";
+  profile?: ProviderProfile;
   temperature?: number;
   maxTokens?: number;
 };
@@ -76,7 +78,7 @@ function emptyToUndefined(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function parseProfile(value: string | undefined): "openai" | "deepseek" | "qwen" | undefined {
+function parseProfile(value: string | undefined): ProviderProfile | undefined {
   if (!value) {
     return undefined;
   }

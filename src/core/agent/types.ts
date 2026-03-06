@@ -69,8 +69,9 @@ export type ToolAuthorizationPolicy = (
 export type AgentLoopInput = {
   model: AgentModel;
   toolRegistry: {
-    toModelTools(): ModelToolDefinition[];
-    describeTools(): string;
+    toModelTools(toolNames?: readonly string[]): ModelToolDefinition[];
+    describeTools(toolNames?: readonly string[]): string;
+    has(toolName: string): boolean;
     execute(toolName: string, rawInput: unknown): Promise<ToolResultEnvelope>;
   };
   skillRouter: {
@@ -99,4 +100,5 @@ export type AgentLoopResult = {
   activeSkillIds: string[];
   messages: AgentMessage[];
   toolResults: ToolResultEnvelope[];
+  visibleToolNames: string[];
 };

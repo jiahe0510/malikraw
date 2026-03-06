@@ -1,5 +1,5 @@
 import { injectSkillPromptBlocks } from "../skill-registry/render-skill-prompt.js";
-import type { PromptMessage } from "../skill-registry/types.js";
+import type { PromptMessage, SelectedSkill } from "../skill-registry/types.js";
 import type { AgentMessage, AgentPromptInput, BuiltPrompt } from "./types.js";
 
 export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
@@ -30,6 +30,30 @@ export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
     messages,
     activeSkillIds: input.activeSkills.map((skill) => skill.name),
   };
+}
+
+export function getVisibleToolNames(
+  activeSkills: readonly SelectedSkill[],
+  allToolNames: readonly string[],
+): string[] {
+  const constrainedSkills = activeSkills.filter((skill) =>
+    (skill.metadata?.allowedTools?.length ?? 0) > 0,
+  );
+
+  if (constrainedSkills.length === 0) {
+    return [...allToolNames];
+  }
+
+  const visible = new Set<string>();
+  for (const skill of constrainedSkills) {
+    for (const toolName of skill.metadata?.allowedTools ?? []) {
+      if (allToolNames.includes(toolName)) {
+        visible.add(toolName);
+      }
+    }
+  }
+
+  return [...visible];
 }
 
 function buildRuntimeContextBlock(input: AgentPromptInput): string {

@@ -54,8 +54,17 @@ function renderRoleBlock(
     lines.push("");
     lines.push(`<skill name="${skill.name}">`);
     lines.push(`description: ${skill.description}`);
+    if (skill.metadata?.allowedTools && skill.metadata.allowedTools.length > 0) {
+      lines.push(`allowedTools: ${skill.metadata.allowedTools.join(", ")}`);
+    }
     lines.push("instruction:");
     lines.push(skill.instruction.trim());
+    if (skill.metadata?.examples && skill.metadata.examples.length > 0) {
+      lines.push("examples:");
+      for (const example of skill.metadata.examples) {
+        lines.push(`- ${example}`);
+      }
+    }
     lines.push("</skill>");
   }
 

@@ -6,21 +6,15 @@ import type {
   ModelTurnResponse,
 } from "../core/agent/types.js";
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
+import { normalizeMessagesForProfile, type TransportMessage } from "../core/providers/index.js";
 
 type OpenAIChatCompletionRequest = {
   model: string;
-  messages: OpenAIChatMessage[];
+  messages: TransportMessage[];
   tools?: Array<Record<string, unknown>>;
   tool_choice?: "auto";
   temperature?: number;
   max_tokens?: number;
-};
-
-type OpenAIChatMessage = {
-  role: "system" | "developer" | "user" | "assistant" | "tool";
-  content: string;
-  tool_call_id?: string;
-  name?: string;
 };
 
 type OpenAIChatCompletionResponse = {
@@ -89,90 +83,6 @@ function buildRequestBody(config: OpenAICompatibleConfig, input: AgentModelReque
     tool_choice: input.tools.length > 0 ? "auto" : undefined,
     temperature: config.temperature,
     max_tokens: config.maxTokens,
-  };
-}
-
-function toOpenAIMessage(message: AgentMessage): OpenAIChatMessage {
-  if (message.role === "tool") {
-    return {
-      role: "tool",
-      content: message.content,
-      tool_call_id: message.toolCallId,
-      name: message.toolName,
-    };
-  }
-
-  return {
-    role: message.role,
-    content: message.content,
-  };
-}
-
-function normalizeMessagesForProfile(
-  messages: AgentMessage[],
-  profile: OpenAICompatibleConfig["profile"],
-): OpenAIChatMessage[] {
-  if (profile === "deepseek" || profile === "qwen") {
-    return normalizeMessagesForDeepSeek(messages);
-  }
-
-  return messages.map(toOpenAIMessage);
-}
-
-function normalizeMessagesForDeepSeek(messages: AgentMessage[]): OpenAIChatMessage[] {
-  const normalized: OpenAIChatMessage[] = [];
-  const systemParts: string[] = [];
-
-  for (const message of messages) {
-    if (message.role === "system" || message.role === "developer") {
-      const content = message.content.trim();
-      if (content) {
-        systemParts.push(content);
-      }
-      continue;
-    }
-
-    if (systemParts.length > 0) {
-      normalized.push({
-        role: "system",
-        content: systemParts.join("\n\n"),
-      });
-      systemParts.length = 0;
-    }
-
-    normalized.push(toDeepSeekMessage(message));
-  }
-
-  if (systemParts.length > 0) {
-    normalized.unshift({
-      role: "system",
-      content: systemParts.join("\n\n"),
-    });
-  }
-
-  return normalized;
-}
-
-function toDeepSeekMessage(message: AgentMessage): OpenAIChatMessage {
-  if (message.role === "tool") {
-    return {
-      role: "tool",
-      content: message.content,
-      tool_call_id: message.toolCallId,
-      name: message.toolName,
-    };
-  }
-
-  if (message.role === "system" || message.role === "developer") {
-    return {
-      role: "system",
-      content: message.content,
-    };
-  }
-
-  return {
-    role: message.role,
-    content: message.content,
   };
 }
 

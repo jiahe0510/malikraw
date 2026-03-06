@@ -9,6 +9,8 @@ export type SkillSpec = {
     tags?: string[];
     version?: string;
     owner?: string;
+    allowedTools?: string[];
+    examples?: string[];
   };
 };
 
@@ -17,6 +19,7 @@ export type SelectedSkill = {
   promptRole: PromptRole;
   instruction: string;
   description: string;
+  metadata?: SkillSpec["metadata"];
 };
 
 export type SkillLookupError = {

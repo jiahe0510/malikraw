@@ -55,8 +55,8 @@ export class ToolRegistry {
     return [...this.tools.values()];
   }
 
-  toModelTools(): ModelToolDefinition[] {
-    return this.list().map((tool) => ({
+  toModelTools(toolNames?: readonly string[]): ModelToolDefinition[] {
+    return this.listVisible(toolNames).map((tool) => ({
       type: "function",
       function: {
         name: tool.name,
@@ -66,8 +66,8 @@ export class ToolRegistry {
     }));
   }
 
-  describeTools(): string {
-    const tools = this.list();
+  describeTools(toolNames?: readonly string[]): string {
+    const tools = this.listVisible(toolNames);
     if (tools.length === 0) {
       return "No tools are currently available.";
     }
@@ -75,6 +75,10 @@ export class ToolRegistry {
     return tools
       .map((tool) => `- ${tool.name}: ${tool.description}`)
       .join("\n");
+  }
+
+  has(toolName: string): boolean {
+    return this.tools.has(toolName);
   }
 
   async execute<TResult = unknown>(
@@ -166,6 +170,15 @@ export class ToolRegistry {
       ok: false,
       error,
     };
+  }
+
+  private listVisible(toolNames?: readonly string[]): RegisteredTool[] {
+    if (!toolNames || toolNames.length === 0) {
+      return this.list();
+    }
+
+    const allowed = new Set(toolNames);
+    return this.list().filter((tool) => allowed.has(tool.name));
   }
 }
 

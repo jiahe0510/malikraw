@@ -45,6 +45,7 @@ export class SkillRegistry {
         promptRole: skill.promptRole ?? "developer",
         instruction: skill.instruction,
         description: skill.description,
+        metadata: skill.metadata,
       });
     }
 

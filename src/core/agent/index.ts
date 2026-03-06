@@ -1,4 +1,4 @@
-export { buildPrompt } from "./build-prompt.js";
+export { buildPrompt, getVisibleToolNames } from "./build-prompt.js";
 export { runAgentLoop } from "./run-agent-loop.js";
 export type {
   AgentLoopInput,

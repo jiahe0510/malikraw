@@ -1,4 +1,4 @@
-import { buildPrompt } from "./build-prompt.js";
+import { buildPrompt, getVisibleToolNames } from "./build-prompt.js";
 import type {
   AgentLoopInput,
   AgentLoopResult,
@@ -19,11 +19,14 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     throw new Error(selected.error.message);
   }
 
+  const allToolNames = input.toolRegistry.toModelTools().map((tool) => tool.function.name);
+  const visibleToolNames = getVisibleToolNames(selected.skills, allToolNames);
+
   const prompt = buildPrompt({
     globalPolicy: input.globalPolicy,
     userRequest: input.userRequest,
     activeSkills: selected.skills,
-    toolSummary: input.toolRegistry.describeTools(),
+    toolSummary: input.toolRegistry.describeTools(visibleToolNames),
     history: input.history,
     stateSummary: input.stateSummary,
     memorySummary: input.memorySummary,
@@ -36,7 +39,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   for (let iteration = 0; iteration < maxIterations; iteration += 1) {
     const modelResponse = await input.model.generate({
       messages,
-      tools: input.toolRegistry.toModelTools(),
+      tools: input.toolRegistry.toModelTools(visibleToolNames),
     });
 
     if (modelResponse.type === "final") {
@@ -50,6 +53,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
         activeSkillIds: prompt.activeSkillIds,
         messages,
         toolResults,
+        visibleToolNames,
       };
     }
 
@@ -61,6 +65,30 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     }
 
     for (const toolCall of modelResponse.toolCalls) {
+      if (!visibleToolNames.includes(toolCall.name) || !input.toolRegistry.has(toolCall.name)) {
+        const deniedResult = {
+          toolName: toolCall.name,
+          traceId: `visibility_${Date.now()}_${toolCall.id}`,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          durationMs: 0,
+          ok: false as const,
+          error: {
+            type: "authorization_error" as const,
+            message: `Tool "${toolCall.name}" is not visible for the active skills.`,
+          },
+        };
+
+        toolResults.push(deniedResult);
+        messages.push({
+          role: "tool",
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          content: JSON.stringify(deniedResult),
+        });
+        continue;
+      }
+
       const authorization = await authorizeTool(input, messages, prompt.activeSkillIds, toolCall.name, toolCall.input, selected.skills);
       if (!authorization.ok) {
         const deniedResult = {
