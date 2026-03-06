@@ -5,4 +5,6 @@ export * from "./core/agent/index.js";
 export * from "./core/config/agent-config.js";
 export * from "./core/providers/index.js";
 export * from "./integrations/openai-compatible-model.js";
+export * from "./runtime/create-agent-runtime.js";
+export * from "./runtime/workspace-context.js";
 export * from "./tools/index.js";

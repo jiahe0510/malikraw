@@ -57,13 +57,24 @@ export function getVisibleToolNames(
 }
 
 function buildRuntimeContextBlock(input: AgentPromptInput): string {
-  const sections = [
-    ["Tools", input.toolSummary],
-    ["State Summary", input.stateSummary ?? "None"],
-    ["Memory Summary", input.memorySummary ?? "None"],
-  ];
+  return [
+    "Runtime Context",
+    "- Visible tools:",
+    ...toToolLines(input.toolSummary),
+    `- State summary: ${input.stateSummary ?? "No state summary provided."}`,
+    `- Memory summary: ${input.memorySummary ?? "No memory summary provided."}`,
+  ].join("\n");
+}
 
-  return sections
-    .map(([title, body]) => `${title}\n${body}`)
-    .join("\n\n");
+function toToolLines(toolSummary: string): string[] {
+  const trimmed = toolSummary.trim();
+  if (!trimmed || trimmed === "No tools are currently available.") {
+    return ["  - No tools are currently available."];
+  }
+
+  return trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.startsWith("- ") ? `  ${line}` : `  - ${line}`);
 }

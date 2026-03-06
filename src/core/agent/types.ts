@@ -45,6 +45,7 @@ export type ModelTurnResponse =
 export type AgentModelRequest = {
   messages: AgentMessage[];
   tools: ModelToolDefinition[];
+  debug?: boolean;
 };
 
 export interface AgentModel {
@@ -92,6 +93,7 @@ export type AgentLoopInput = {
   stateSummary?: string;
   memorySummary?: string;
   maxIterations?: number;
+  debugModelMessages?: boolean;
   authorizeTool?: ToolAuthorizationPolicy;
 };
 

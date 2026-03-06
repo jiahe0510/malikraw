@@ -40,6 +40,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     const modelResponse = await input.model.generate({
       messages,
       tools: input.toolRegistry.toModelTools(visibleToolNames),
+      debug: input.debugModelMessages,
     });
 
     if (modelResponse.type === "final") {

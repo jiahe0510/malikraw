@@ -46,27 +46,35 @@ export function injectSkillPromptBlocks(
 
 function renderRoleBlock(
   skills: readonly SelectedSkill[],
-  heading = "Activated Skills",
+  heading = "Active Skills",
 ): string {
   const lines: string[] = [heading];
 
   for (const skill of skills) {
     lines.push("");
-    lines.push(`<skill name="${skill.name}">`);
-    lines.push(`description: ${skill.description}`);
+    lines.push(`Skill: ${skill.name}`);
+    lines.push(`- Description: ${skill.description}`);
     if (skill.metadata?.allowedTools && skill.metadata.allowedTools.length > 0) {
-      lines.push(`allowedTools: ${skill.metadata.allowedTools.join(", ")}`);
+      lines.push(`- Tool constraint: You may use only these tools: ${skill.metadata.allowedTools.join(", ")}`);
     }
-    lines.push("instruction:");
-    lines.push(skill.instruction.trim());
+    lines.push("- Required behavior:");
+    for (const item of toBulletLines(skill.instruction)) {
+      lines.push(`  - ${item}`);
+    }
     if (skill.metadata?.examples && skill.metadata.examples.length > 0) {
-      lines.push("examples:");
+      lines.push("- Output style examples:");
       for (const example of skill.metadata.examples) {
-        lines.push(`- ${example}`);
+        lines.push(`  - ${example}`);
       }
     }
-    lines.push("</skill>");
   }
 
   return lines.join("\n");
+}
+
+function toBulletLines(instruction: string): string[] {
+  return instruction
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }

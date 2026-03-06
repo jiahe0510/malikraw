@@ -37,13 +37,19 @@ export class OpenAICompatibleModel implements AgentModel {
   constructor(private readonly config: OpenAICompatibleConfig) {}
 
   async generate(input: AgentModelRequest): Promise<ModelTurnResponse> {
+    const requestBody = buildRequestBody(this.config, input);
+    if (input.debug) {
+      console.error("[model-request]");
+      console.error(JSON.stringify(requestBody, null, 2));
+    }
+
     const response = await fetch(buildChatCompletionsUrl(this.config.baseURL), {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${this.config.apiKey}`,
       },
-      body: JSON.stringify(buildRequestBody(this.config, input)),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -52,6 +58,10 @@ export class OpenAICompatibleModel implements AgentModel {
     }
 
     const payload = await response.json() as OpenAIChatCompletionResponse;
+    if (input.debug) {
+      console.error("[model-response]");
+      console.error(JSON.stringify(payload, null, 2));
+    }
     const choice = payload.choices[0];
     if (!choice) {
       throw new Error("Model response did not include any choices.");

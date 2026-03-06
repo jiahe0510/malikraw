@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "start": "node dist/app.js",
+    "start": "node dist/gateway/server.js",
+    "tui": "node dist/tui.js",
     "test": "npm run build && node --test dist/test/**/*.test.js"
   },
   "devDependencies": {
