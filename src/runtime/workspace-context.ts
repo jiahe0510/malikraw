@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import path from "node:path";
+import { getMalikrawHomeDirectory } from "../core/config/config-store.js";
 import { readDefaultAgentTemplateFile } from "./system-template-context.js";
 
 let workspaceRootOverride: string | undefined;
@@ -14,7 +14,7 @@ export function clearWorkspaceRoot(): void {
 }
 
 export function getWorkspaceRoot(): string {
-  return workspaceRootOverride ?? path.join(homedir(), ".malikraw", "workspace");
+  return workspaceRootOverride ?? path.join(getMalikrawHomeDirectory(), "workspace");
 }
 
 export function getSkillsDirectory(): string {
