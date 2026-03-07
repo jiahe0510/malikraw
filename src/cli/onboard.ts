@@ -10,6 +10,7 @@ import {
   type StoredProviderConfig,
   type StoredProvidersConfig,
   type StoredSystemConfig,
+  type StoredToolsConfig,
   type StoredWorkspaceConfig,
   saveConfigBundle,
 } from "../core/config/config-store.js";
@@ -80,6 +81,7 @@ export async function runOnboardWizard(): Promise<void> {
   const agents = await collectAgents(agentMode, providerId, availableSkillIds, existingAgents);
   const defaultAgentId = agents[0]?.id ?? "primary";
   const channels = await collectChannels(existing.channels?.channels ?? [], defaultAgentId, agents.map((agent) => agent.id));
+  const tools = await collectToolsConfig(existing.tools);
   const startNow = await promptSelectWithDefault("Start service now?", [
     { label: "Yes", value: "yes" },
     { label: "No", value: "no" },
@@ -125,6 +127,7 @@ export async function runOnboardWizard(): Promise<void> {
     agentProviderMapping,
     workspace,
     channels: storedChannels,
+    tools,
     agents: storedAgents,
   });
 
@@ -264,6 +267,25 @@ async function collectFeishuChannel(
       await promptText("Feishu encrypt key", existingChannel?.encryptKey || ""),
     ),
     replyMode,
+  };
+}
+
+async function collectToolsConfig(existingTools: StoredToolsConfig | undefined): Promise<StoredToolsConfig> {
+  const configureBrave = await promptSelectWithDefault("Configure Brave web_search key?", [
+    { label: "No", value: "no" },
+    { label: "Yes", value: "yes" },
+  ], existingTools?.braveSearchApiKey ? "yes" : "no");
+
+  if (configureBrave === "no") {
+    return {
+      braveSearchApiKey: existingTools?.braveSearchApiKey,
+    };
+  }
+
+  return {
+    braveSearchApiKey: emptyToUndefined(
+      await promptText("Brave Search API key", existingTools?.braveSearchApiKey || ""),
+    ),
   };
 }
 

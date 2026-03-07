@@ -86,7 +86,7 @@ read before edit`));
   assert.match(prompt.messages[3]?.content ?? "", /Workspace AGENT\.md/);
 });
 
-test("getVisibleToolNames respects allowedTools on active skills", () => {
+test("getVisibleToolNames keeps all tools visible even when skills declare allowedTools", () => {
   const skill = parseSkillMarkdown(`---
 name: workspace_operator
 description: workspace flow
@@ -104,7 +104,7 @@ read before edit`);
     metadata: skill.metadata,
   }], ["read_file", "edit_file", "exec_shell"]);
 
-  assert.deepEqual(visible, ["read_file", "edit_file"]);
+  assert.deepEqual(visible, ["read_file", "edit_file", "exec_shell"]);
 });
 
 test("runAgentLoop executes tool calls and returns final output", async () => {
@@ -168,4 +168,61 @@ read before edit`));
   assert.equal(result.toolResults.length, 1);
   assert.deepEqual(result.visibleToolNames, ["read_file"]);
   assert.match(result.finalOutput, /read_file/);
+});
+
+test("runAgentLoop exposes non-skill tools to the model by default", async () => {
+  const toolRegistry = new ToolRegistry();
+  toolRegistry.register(defineTool({
+    name: "read_file",
+    description: "read a file",
+    inputSchema: s.object(
+      { path: s.string({ minLength: 1 }) },
+      { required: ["path"] },
+    ),
+    execute: ({ path }) => ({ path, content: "hello" }),
+  }));
+  toolRegistry.register(defineTool({
+    name: "web_search",
+    description: "search the web",
+    inputSchema: s.object(
+      { query: s.string({ minLength: 1 }) },
+      { required: ["query"] },
+    ),
+    execute: ({ query }) => ({ query, results: [] }),
+  }));
+
+  const skillRegistry = new SkillRegistry();
+  skillRegistry.register(parseSkillMarkdown(`---
+name: workspace_operator
+description: workspace flow
+promptRole: developer
+allowedTools: read_file
+---
+
+read before edit`));
+
+  class FinalOnlyModel implements AgentModel {
+    seenTools: string[] = [];
+
+    generate(input: { messages: AgentMessage[]; tools: Array<{ function: { name: string } }> }): ModelTurnResponse {
+      this.seenTools = input.tools.map((tool) => tool.function.name);
+      return {
+        type: "final",
+        outputText: "done",
+      };
+    }
+  }
+
+  const model = new FinalOnlyModel();
+  const result = await runAgentLoop({
+    model,
+    toolRegistry,
+    skillRegistry,
+    skillRouter: new ManualSkillRouter(["workspace_operator"]),
+    globalPolicy: "global policy",
+    userRequest: "search if needed",
+  });
+
+  assert.deepEqual(model.seenTools, ["read_file", "web_search"]);
+  assert.deepEqual(result.visibleToolNames, ["read_file", "web_search"]);
 });

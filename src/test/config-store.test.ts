@@ -4,7 +4,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { loadRuntimeConfig, saveConfigBundle } from "../index.js";
+import { loadConfigBundle, loadRuntimeConfig, saveConfigBundle } from "../index.js";
 
 test("loadRuntimeConfig reads persisted malikraw config files", async () => {
   const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-home-"));
@@ -57,6 +57,9 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
           replyMode: "chat",
         }],
       },
+      tools: {
+        braveSearchApiKey: "brave-key",
+      },
       agents: {
         defaultAgentId: "primary",
         agents: [{
@@ -95,6 +98,7 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
       agentId: "primary",
       replyMode: "chat",
     }]);
+    assert.equal(loadConfigBundle().tools?.braveSearchApiKey, "brave-key");
     assert.deepEqual(config.agents, [{
       id: "primary",
       model: {
@@ -159,6 +163,7 @@ test("loadRuntimeConfig ignores OPENAI environment variables and uses stored con
           agentId: "primary",
         }],
       },
+      tools: {},
       agents: {
         defaultAgentId: "primary",
         agents: [{

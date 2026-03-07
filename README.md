@@ -47,6 +47,8 @@ This writes config files under `~/.malikraw/config/`, including:
 - `providers.json`
 - `agent-provider-mapping.json`
 - `workspace.json`
+- `channels.json`
+- `tools.json`
 - `agents.json`
 
 During onboarding, available skills are discovered from the repository `skills/` directory. The selected skill directories are copied into the workspace under `~/.malikraw/workspace/skills/`.
@@ -78,6 +80,18 @@ curl -X POST http://127.0.0.1:5050/api/chat \
   -H 'content-type: application/json' \
   -d '{"message":"read the workspace status","channelId":"http","sessionId":"demo"}'
 ```
+
+## Web Search Tool
+
+The built-in `web_search` tool uses Brave Search API.
+
+You can configure the Brave API key in `malikraw onboard`. The tool also falls back to:
+
+```bash
+export BRAVE_SEARCH_API_KEY=your_brave_api_key
+```
+
+The tool calls Brave's web search endpoint and returns compact results with `title`, `url`, and `description`.
 
 ## TUI
 

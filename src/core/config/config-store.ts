@@ -62,6 +62,10 @@ export type StoredChannelsConfig = {
   channels: StoredChannelConfig[];
 };
 
+export type StoredToolsConfig = {
+  braveSearchApiKey?: string;
+};
+
 export type StoredAgentConfig = {
   id: string;
   activeSkillIds: string[];
@@ -79,6 +83,7 @@ export type MalikrawConfigBundle = {
   agentProviderMapping?: StoredAgentProviderMappingConfig;
   workspace?: StoredWorkspaceConfig;
   channels?: StoredChannelsConfig;
+  tools?: StoredToolsConfig;
   agents?: StoredAgentsConfig;
 };
 
@@ -103,6 +108,7 @@ export function loadConfigBundle(): MalikrawConfigBundle {
     agentProviderMapping: readJsonFile<StoredAgentProviderMappingConfig>("agent-provider-mapping.json"),
     workspace: readJsonFile<StoredWorkspaceConfig>("workspace.json"),
     channels: readJsonFile<StoredChannelsConfig>("channels.json"),
+    tools: readJsonFile<StoredToolsConfig>("tools.json"),
     agents: readJsonFile<StoredAgentsConfig>("agents.json"),
   };
 }
@@ -114,6 +120,7 @@ export function saveConfigBundle(bundle: Required<MalikrawConfigBundle>): void {
   writeJsonFile("agent-provider-mapping.json", bundle.agentProviderMapping);
   writeJsonFile("workspace.json", bundle.workspace);
   writeJsonFile("channels.json", bundle.channels);
+  writeJsonFile("tools.json", bundle.tools);
   writeJsonFile("agents.json", bundle.agents);
 }
 

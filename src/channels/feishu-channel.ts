@@ -6,6 +6,8 @@ import type { ChannelDelivery, ChannelInboundMessage, ChannelStartContext, Gatew
 const FEISHU_REPLY_MESSAGE_ID = "feishuReplyMessageId";
 const FEISHU_CHAT_ID = "feishuChatId";
 const FEISHU_THREAD_ID = "feishuThreadId";
+const FEISHU_DEDUP_TTL_MS = 5 * 60 * 1000;
+const FEISHU_DEDUP_MAX_SIZE = 2000;
 
 type FeishuReceiveMessageEvent = {
   sender: {
@@ -27,6 +29,7 @@ export class FeishuChannel implements GatewayChannel {
   private readonly client: Lark.Client;
   private readonly wsClient: Lark.WSClient;
   private readonly config: StoredFeishuChannelConfig;
+  private readonly seenMessageIds = new Map<string, number>();
 
   constructor(config: StoredFeishuChannelConfig) {
     this.id = config.id;
@@ -123,6 +126,14 @@ export class FeishuChannel implements GatewayChannel {
     console.log(
       `[channel:feishu] inbound id=${this.id} messageId=${data.message.message_id} chatId=${data.message.chat_id} threadId=${data.message.thread_id ?? "-"} type=${data.message.message_type}`,
     );
+
+    if (!this.shouldHandleMessage(data.message.message_id)) {
+      console.log(
+        `[channel:feishu] deduplicated id=${this.id} messageId=${data.message.message_id} chatId=${data.message.chat_id}`,
+      );
+      return;
+    }
+
     const message = toChannelInboundMessage(this.config, data);
     if (!message) {
       await this.replyUnsupportedMessage(data);
@@ -155,6 +166,10 @@ export class FeishuChannel implements GatewayChannel {
         reply_in_thread: resolveReplyMode(this.config) === "thread",
       },
     });
+  }
+
+  private shouldHandleMessage(messageId: string): boolean {
+    return rememberMessageId(this.seenMessageIds, messageId, Date.now());
   }
 }
 
@@ -213,4 +228,41 @@ function resolveReplyMode(config: StoredFeishuChannelConfig): "chat" | "reply" |
   }
 
   return "chat";
+}
+
+export function rememberMessageId(
+  seenMessageIds: Map<string, number>,
+  messageId: string,
+  now: number,
+  ttlMs = FEISHU_DEDUP_TTL_MS,
+  maxSize = FEISHU_DEDUP_MAX_SIZE,
+): boolean {
+  pruneSeenMessageIds(seenMessageIds, now, ttlMs, maxSize);
+  if (seenMessageIds.has(messageId)) {
+    return false;
+  }
+
+  seenMessageIds.set(messageId, now);
+  return true;
+}
+
+function pruneSeenMessageIds(
+  seenMessageIds: Map<string, number>,
+  now: number,
+  ttlMs: number,
+  maxSize: number,
+): void {
+  for (const [messageId, seenAt] of seenMessageIds) {
+    if (now - seenAt > ttlMs) {
+      seenMessageIds.delete(messageId);
+    }
+  }
+
+  while (seenMessageIds.size >= maxSize) {
+    const oldestKey = seenMessageIds.keys().next().value;
+    if (!oldestKey) {
+      return;
+    }
+    seenMessageIds.delete(oldestKey);
+  }
 }

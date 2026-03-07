@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { extractFeishuText, toChannelInboundMessage } from "../channels/feishu-channel.js";
+import { extractFeishuText, rememberMessageId, toChannelInboundMessage } from "../channels/feishu-channel.js";
 
 test("extractFeishuText returns trimmed text messages only", () => {
   assert.equal(extractFeishuText("text", JSON.stringify({ text: " hello " })), "hello");
@@ -39,4 +39,13 @@ test("toChannelInboundMessage maps Feishu event metadata into a channel session"
     },
     content: "hello",
   });
+});
+
+test("rememberMessageId deduplicates repeated Feishu message ids and expires old entries", () => {
+  const seen = new Map<string, number>();
+
+  assert.equal(rememberMessageId(seen, "om_1", 1000, 100, 10), true);
+  assert.equal(rememberMessageId(seen, "om_1", 1001, 100, 10), false);
+  assert.equal(rememberMessageId(seen, "om_2", 1150, 100, 10), true);
+  assert.equal(rememberMessageId(seen, "om_1", 1201, 100, 10), true);
 });
