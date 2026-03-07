@@ -8,6 +8,7 @@ import {
   runAgentLoop,
 } from "../index.js";
 import type { RuntimeConfig } from "../core/config/agent-config.js";
+import type { AgentMessage } from "../core/agent/types.js";
 import { readBundledPersonalityFile } from "./system-template-context.js";
 import {
   ensureWorkspaceInitialized,
@@ -19,9 +20,13 @@ import {
 
 export type AgentRuntime = {
   workspaceRoot: string;
-  ask(userRequest: string): Promise<{
+  ask(input: {
+    userRequest: string;
+    history?: AgentMessage[];
+  }): Promise<{
     output: string;
     visibleToolNames: string[];
+    messages: AgentMessage[];
   }>;
 };
 
@@ -41,7 +46,7 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
 
   return {
     workspaceRoot: getWorkspaceRoot(),
-    ask: async (userRequest: string) => {
+    ask: async ({ userRequest, history }) => {
       const agentSystemContent = await readWorkspaceAgentFile();
       const result = await runAgentLoop({
         model,
@@ -52,6 +57,7 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         personalitySystemContent,
         agentSystemContent,
         userRequest,
+        history,
         stateSummary: config.stateSummary,
         memorySummary: config.memorySummary,
         maxIterations: config.maxIterations,
@@ -61,6 +67,7 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
       return {
         output: result.finalOutput,
         visibleToolNames: result.visibleToolNames,
+        messages: result.messages,
       };
     },
   };

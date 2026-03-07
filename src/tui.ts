@@ -2,13 +2,18 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
 import { loadRuntimeConfig } from "./core/config/agent-config.js";
+import { Gateway, createAgentRuntime, type ChannelDelivery, type GatewayChannel } from "./index.js";
 
 async function main(): Promise<void> {
   const config = loadRuntimeConfig(process.env);
-  const gatewayUrl = `http://127.0.0.1:${config.gatewayPort}`;
+  const runtime = await createAgentRuntime(config);
+  const gateway = new Gateway(runtime);
+  const channel = createTuiChannel();
+  gateway.registerChannel(channel);
   const rl = readline.createInterface({ input, output });
+  const sessionId = "default";
 
-  console.log(`malikraw tui connected to ${gatewayUrl}`);
+  console.log("malikraw tui registered to gateway channel tui");
   console.log('Type a request, or ":quit" to exit.');
 
   while (true) {
@@ -22,32 +27,13 @@ async function main(): Promise<void> {
     }
 
     try {
-      const response = await fetch(`${gatewayUrl}/api/chat`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
+      await gateway.handleMessage({
+        session: {
+          channelId: channel.id,
+          sessionId,
         },
-        body: JSON.stringify({ message: trimmed }),
+        content: trimmed,
       });
-      const payload = await response.json() as {
-        ok?: boolean;
-        output?: string;
-        error?: string;
-        visibleToolNames?: string[];
-      };
-
-      if (!response.ok || !payload.ok) {
-        console.error(payload.error ?? `Request failed with ${response.status}`);
-        continue;
-      }
-
-      console.log("");
-      console.log(payload.output ?? "");
-      if (payload.visibleToolNames?.length) {
-        console.log("");
-        console.log(`visible tools: ${payload.visibleToolNames.join(", ")}`);
-      }
-      console.log("");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(message);
@@ -55,6 +41,21 @@ async function main(): Promise<void> {
   }
 
   rl.close();
+}
+
+function createTuiChannel(): GatewayChannel {
+  return {
+    id: "tui",
+    sendMessage: (delivery: ChannelDelivery) => {
+      console.log("");
+      console.log(delivery.content);
+      if (delivery.visibleToolNames.length) {
+        console.log("");
+        console.log(`visible tools: ${delivery.visibleToolNames.join(", ")}`);
+      }
+      console.log("");
+    },
+  };
 }
 
 void main().catch((error: unknown) => {
