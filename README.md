@@ -18,31 +18,24 @@ Minimal agent runtime with:
 ```bash
 cd /Users/jiahezhao/malikraw
 npm install
-```
-
-Optional: install the local CLI globally from this checkout so you can use `malikraw ...` directly:
-
-```bash
 npm run build
 npm link
 ```
 
-## Build
+After `npm link`, use the CLI directly:
 
 ```bash
-npm run build
+malikraw onboard
+malikraw start
+malikraw stop
+malikraw restart
+malikraw status
+malikraw tui
 ```
 
 ## Onboard
 
 Run the step-by-step setup wizard:
-
-```bash
-npm run build
-npm run onboard
-```
-
-Or, after `npm link`:
 
 ```bash
 malikraw onboard
@@ -56,16 +49,11 @@ This writes config files under `~/.malikraw/config/`, including:
 - `workspace.json`
 - `agents.json`
 
+During onboarding, available skills are discovered from the repository [`skills`](/Users/jiahezhao/malikraw/skills) directory. The selected skill directories are copied into the workspace under `~/.malikraw/workspace/skills/`.
+
 ## Service Commands
 
 If you already have config saved from onboarding, the gateway runs as a background service:
-
-```bash
-npm run build
-npm start
-```
-
-Equivalent CLI commands after `npm link`:
 
 ```bash
 malikraw start
@@ -91,14 +79,7 @@ curl -X POST http://127.0.0.1:5050/api/chat \
   -d '{"message":"read the workspace status","channelId":"http","sessionId":"demo"}'
 ```
 
-## Run The TUI
-
-```bash
-npm run build
-npm run tui
-```
-
-Or:
+## TUI
 
 ```bash
 malikraw tui
@@ -106,17 +87,18 @@ malikraw tui
 
 The TUI registers itself as the `tui` channel and keeps a local in-memory session.
 
-## Run Tests
+## Development
 
-```bash
-npm test
-```
-
-This runs:
+Build:
 
 ```bash
 npm run build
-node --test dist/test/**/*.test.js
+```
+
+Run tests:
+
+```bash
+npm test
 ```
 
 ## Notes
@@ -124,5 +106,6 @@ node --test dist/test/**/*.test.js
 - Default workspace path is `~/.malikraw/workspace`
 - Default workspace prompt file is `~/.malikraw/workspace/AGENT.md`
 - Config files live under `~/.malikraw/config/`
+- Bundled skills live under [`skills`](/Users/jiahezhao/malikraw/skills)
 - System prompt templates live in [`templates/system`](/Users/jiahezhao/malikraw/templates/system)
 - Environment variables can still override saved config at runtime

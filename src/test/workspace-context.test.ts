@@ -30,3 +30,16 @@ test("workspace initialization seeds AGENT.md", async () => {
     clearWorkspaceRoot();
   }
 });
+
+test("workspace initialization does not auto-seed bundled skills", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "malikraw-workspace-"));
+  setWorkspaceRoot(workspace);
+
+  try {
+    await ensureWorkspaceInitialized();
+
+    await assert.rejects(stat(path.join(workspace, "skills", "workspace_operator", "SKILL.md")));
+  } finally {
+    clearWorkspaceRoot();
+  }
+});

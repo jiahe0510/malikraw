@@ -10,8 +10,9 @@ import {
   saveConfigBundle,
 } from "../core/config/config-store.js";
 import { startBackgroundService } from "./service-manager.js";
+import { installBundledSkills, listBundledSkillIds } from "../runtime/bundled-skills.js";
 import { getWorkspaceRoot } from "../runtime/workspace-context.js";
-import { promptSelect, promptText } from "./terminal-ui.js";
+import { promptMultiSelect, promptSelect, promptText } from "./terminal-ui.js";
 
 type AgentMode = "single" | "multi";
 type YesNo = "yes" | "no";
@@ -46,7 +47,8 @@ export async function runOnboardWizard(): Promise<void> {
     { label: "Multi agent", value: "multi" },
   ]);
 
-  const agents = await collectAgents(agentMode, providerId);
+  const availableSkillIds = await listBundledSkillIds();
+  const agents = await collectAgents(agentMode, providerId, availableSkillIds);
   const defaultAgentId = agents[0]?.id ?? "primary";
   const startNow = await promptSelect("Start service now?", [
     { label: "Yes", value: "yes" },
@@ -91,8 +93,14 @@ export async function runOnboardWizard(): Promise<void> {
     agents: storedAgents,
   });
 
+  await installBundledSkills(
+    [...new Set(agents.flatMap((agent) => agent.activeSkillIds))],
+    workspaceRoot,
+  );
+
   console.log("");
   console.log("Configuration saved.");
+  console.log(`Installed skills into ${workspaceRoot}/skills`);
 
   if (startNow === "yes") {
     loadRuntimeConfig(process.env);
@@ -102,13 +110,17 @@ export async function runOnboardWizard(): Promise<void> {
   }
 }
 
-async function collectAgents(agentMode: AgentMode, providerId: string): Promise<StoredAgentConfig[]> {
+async function collectAgents(
+  agentMode: AgentMode,
+  providerId: string,
+  availableSkillIds: string[],
+): Promise<StoredAgentConfig[]> {
   if (agentMode === "single") {
     const agentId = await promptText("Agent id", "primary");
-    const activeSkills = await promptText("Active skills (comma-separated)", "workspace_operator");
+    const activeSkills = await selectSkillsForAgent(availableSkillIds, ["workspace_operator"]);
     return [{
       id: agentId,
-      activeSkillIds: splitCsv(activeSkills) || ["workspace_operator"],
+      activeSkillIds: activeSkills,
       providerId,
     }];
   }
@@ -120,10 +132,10 @@ async function collectAgents(agentMode: AgentMode, providerId: string): Promise<
     console.log(`Agent ${index + 1}`);
     const fallbackId = index === 0 ? "planner" : index === 1 ? "executor" : `agent-${index + 1}`;
     const agentId = await promptText("Agent id", fallbackId);
-    const activeSkills = await promptText("Active skills (comma-separated)", "workspace_operator");
+    const activeSkills = await selectSkillsForAgent(availableSkillIds, ["workspace_operator"]);
     agents.push({
       id: agentId,
-      activeSkillIds: splitCsv(activeSkills) || ["workspace_operator"],
+      activeSkillIds: activeSkills,
       providerId,
     });
   }
@@ -167,11 +179,28 @@ async function promptRequiredNumber(question: string, defaultValue: string): Pro
   }
 }
 
-function splitCsv(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+async function selectSkillsForAgent(
+  availableSkillIds: string[],
+  defaultSkillIds: string[],
+): Promise<string[]> {
+  if (availableSkillIds.length === 0) {
+    return [];
+  }
+
+  const selected = await promptMultiSelect(
+    "Select skills for this agent",
+    availableSkillIds.map((skillId) => ({
+      label: skillId,
+      value: skillId,
+    })),
+    defaultSkillIds,
+  );
+
+  if (selected.length > 0) {
+    return selected;
+  }
+
+  return defaultSkillIds.filter((skillId) => availableSkillIds.includes(skillId));
 }
 
 function defaultBaseUrlForProfile(profile: StoredProviderConfig["profile"]): string {
