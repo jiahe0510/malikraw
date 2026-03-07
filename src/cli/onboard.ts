@@ -9,7 +9,7 @@ import {
   type StoredWorkspaceConfig,
   saveConfigBundle,
 } from "../core/config/config-store.js";
-import { startGatewayServer } from "../gateway/server.js";
+import { startBackgroundService } from "./service-manager.js";
 import { getWorkspaceRoot } from "../runtime/workspace-context.js";
 import { promptSelect, promptText } from "./terminal-ui.js";
 
@@ -95,8 +95,10 @@ export async function runOnboardWizard(): Promise<void> {
   console.log("Configuration saved.");
 
   if (startNow === "yes") {
-    console.log("Starting gateway...");
-    await startGatewayServer(loadRuntimeConfig(process.env));
+    loadRuntimeConfig(process.env);
+    const status = startBackgroundService();
+    console.log("Service started.");
+    console.log(`pid: ${status.running ? status.pid : "unknown"}`);
   }
 }
 

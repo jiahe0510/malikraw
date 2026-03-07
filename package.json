@@ -11,8 +11,12 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "onboard": "node dist/cli.js onboard",
     "cli": "node dist/cli.js",
-    "start": "node dist/gateway/server.js",
-    "tui": "node dist/tui.js",
+    "start": "node dist/cli.js start",
+    "stop": "node dist/cli.js stop",
+    "restart": "node dist/cli.js restart",
+    "status": "node dist/cli.js status",
+    "serve": "node dist/cli.js serve",
+    "tui": "node dist/cli.js tui",
     "test": "npm run build && node --test dist/test/**/*.test.js"
   },
   "devDependencies": {

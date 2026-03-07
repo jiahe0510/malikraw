@@ -4,7 +4,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { loadRuntimeConfig } from "./core/config/agent-config.js";
 import { Gateway, createAgentRuntime, type ChannelDelivery, type GatewayChannel } from "./index.js";
 
-async function main(): Promise<void> {
+export async function runTui(): Promise<void> {
   const config = loadRuntimeConfig(process.env);
   const runtime = await createAgentRuntime(config);
   const gateway = new Gateway(runtime);
@@ -58,7 +58,7 @@ function createTuiChannel(): GatewayChannel {
   };
 }
 
-void main().catch((error: unknown) => {
+void runTui().catch((error: unknown) => {
   const message = error instanceof Error ? error.stack ?? error.message : String(error);
   console.error(message);
   process.exit(1);

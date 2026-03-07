@@ -20,6 +20,13 @@ cd /Users/jiahezhao/malikraw
 npm install
 ```
 
+Optional: install the local CLI globally from this checkout so you can use `malikraw ...` directly:
+
+```bash
+npm run build
+npm link
+```
+
 ## Build
 
 ```bash
@@ -35,6 +42,12 @@ npm run build
 npm run onboard
 ```
 
+Or, after `npm link`:
+
+```bash
+malikraw onboard
+```
+
 This writes config files under `~/.malikraw/config/`, including:
 
 - `system.json`
@@ -43,16 +56,26 @@ This writes config files under `~/.malikraw/config/`, including:
 - `workspace.json`
 - `agents.json`
 
-## Start The Gateway
+## Service Commands
 
-If you already have config saved from onboarding:
+If you already have config saved from onboarding, the gateway runs as a background service:
 
 ```bash
 npm run build
 npm start
 ```
 
+Equivalent CLI commands after `npm link`:
+
+```bash
+malikraw start
+malikraw stop
+malikraw restart
+malikraw status
+```
+
 The gateway listens on `127.0.0.1:<gatewayPort>`. Default port is `5050`.
+Service metadata and logs are stored under `~/.malikraw/.runtime/service/`.
 
 Health check:
 
@@ -75,6 +98,12 @@ npm run build
 npm run tui
 ```
 
+Or:
+
+```bash
+malikraw tui
+```
+
 The TUI registers itself as the `tui` channel and keeps a local in-memory session.
 
 ## Run Tests
@@ -94,5 +123,6 @@ node --test dist/test/**/*.test.js
 
 - Default workspace path is `~/.malikraw/workspace`
 - Default workspace prompt file is `~/.malikraw/workspace/AGENT.md`
+- Config files live under `~/.malikraw/config/`
 - System prompt templates live in [`templates/system`](/Users/jiahezhao/malikraw/templates/system)
 - Environment variables can still override saved config at runtime
