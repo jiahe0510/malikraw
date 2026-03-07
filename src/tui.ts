@@ -1,11 +1,12 @@
 import readline from "node:readline/promises";
+import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 
 import { loadRuntimeConfig } from "./core/config/agent-config.js";
 import { Gateway, createAgentRuntime, type ChannelDelivery, type GatewayChannel } from "./index.js";
 
 export async function runTui(): Promise<void> {
-  const config = loadRuntimeConfig(process.env);
+  const config = loadRuntimeConfig();
   const runtime = await createAgentRuntime(config);
   const gateway = new Gateway(runtime);
   const channel = createTuiChannel();
@@ -14,7 +15,7 @@ export async function runTui(): Promise<void> {
   const sessionId = "default";
 
   console.log("malikraw tui registered to gateway channel tui");
-  console.log('Type a request, or ":quit" to exit.');
+  console.log('Type a request, or "/exit" to exit.');
 
   while (true) {
     const question = await rl.question("> ");
@@ -22,7 +23,7 @@ export async function runTui(): Promise<void> {
     if (!trimmed) {
       continue;
     }
-    if (trimmed === ":quit" || trimmed === ":q" || trimmed === "exit") {
+    if (trimmed === "/exit") {
       break;
     }
 
@@ -49,17 +50,24 @@ function createTuiChannel(): GatewayChannel {
     sendMessage: (delivery: ChannelDelivery) => {
       console.log("");
       console.log(delivery.content);
-      if (delivery.visibleToolNames.length) {
-        console.log("");
-        console.log(`visible tools: ${delivery.visibleToolNames.join(", ")}`);
-      }
       console.log("");
     },
   };
 }
 
-void runTui().catch((error: unknown) => {
-  const message = error instanceof Error ? error.stack ?? error.message : String(error);
-  console.error(message);
-  process.exit(1);
-});
+if (isDirectExecution()) {
+  void runTui().catch((error: unknown) => {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  });
+}
+
+function isDirectExecution(): boolean {
+  const entryPath = process.argv[1];
+  if (!entryPath) {
+    return false;
+  }
+
+  return import.meta.url === new URL(`file://${path.resolve(entryPath)}`).href;
+}

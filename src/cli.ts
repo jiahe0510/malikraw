@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   }
 
   if (command === "serve") {
-    await startGatewayServer(loadRuntimeConfig(process.env));
+    await startGatewayServer(loadRuntimeConfig());
     return;
   }
 

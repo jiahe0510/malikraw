@@ -8,7 +8,7 @@ import type { GatewayChannel } from "./channel.js";
 import { Gateway } from "./gateway.js";
 
 async function main(): Promise<void> {
-  const config = loadRuntimeConfig(process.env);
+  const config = loadRuntimeConfig();
   await startGatewayServer(config);
 }
 

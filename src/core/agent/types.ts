@@ -12,6 +12,7 @@ export type AgentMessage = {
 
 export type AgentPromptInput = {
   globalPolicy: string;
+  identitySystemContent?: string;
   personalitySystemContent?: string;
   agentSystemContent?: string;
   userRequest: string;
@@ -90,6 +91,7 @@ export type AgentLoopInput = {
     select(skillNames: readonly string[]): { ok: true; skills: SelectedSkill[] } | { ok: false; error: { message: string } };
   };
   globalPolicy: string;
+  identitySystemContent?: string;
   personalitySystemContent?: string;
   agentSystemContent?: string;
   userRequest: string;

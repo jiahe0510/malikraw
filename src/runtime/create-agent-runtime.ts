@@ -15,6 +15,8 @@ import {
   getSkillsDirectory,
   getWorkspaceRoot,
   readWorkspaceAgentFile,
+  readWorkspaceIdentityFile,
+  readWorkspacePersonalityFile,
   setWorkspaceRoot,
 } from "./workspace-context.js";
 
@@ -33,7 +35,6 @@ export type AgentRuntime = {
 export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRuntime> {
   setWorkspaceRoot(config.workspaceRoot);
   await ensureWorkspaceInitialized();
-  const personalitySystemContent = await readBundledPersonalityFile();
 
   const toolRegistry = registerBuiltinTools(new ToolRegistry());
   const skillRegistry = new SkillRegistry();
@@ -47,6 +48,9 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
   return {
     workspaceRoot: getWorkspaceRoot(),
     ask: async ({ userRequest, history }) => {
+      const identitySystemContent = await readWorkspaceIdentityFile();
+      const personalitySystemContent = await readWorkspacePersonalityFile()
+        ?? await readBundledPersonalityFile();
       const agentSystemContent = await readWorkspaceAgentFile();
       const result = await runAgentLoop({
         model,
@@ -54,6 +58,7 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         skillRegistry,
         skillRouter: new ManualSkillRouter(config.activeSkillIds),
         globalPolicy: config.globalPolicy,
+        identitySystemContent,
         personalitySystemContent,
         agentSystemContent,
         userRequest,

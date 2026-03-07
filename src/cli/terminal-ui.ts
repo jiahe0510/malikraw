@@ -16,11 +16,23 @@ export async function promptSelect<T extends string>(question: string, options: 
     return options[0].value;
   }
 
+  return promptSelectWithDefault(question, options, options[0]?.value);
+}
+
+export async function promptSelectWithDefault<T extends string>(
+  question: string,
+  options: SelectOption<T>[],
+  defaultValue: T | undefined,
+): Promise<T> {
+  if (!input.isTTY || !output.isTTY) {
+    return defaultValue ?? options[0].value;
+  }
+
   input.resume();
   readline.emitKeypressEvents(input);
   input.setRawMode(true);
 
-  let selectedIndex = 0;
+  let selectedIndex = Math.max(0, options.findIndex((option) => option.value === defaultValue));
   renderSelect(question, options, selectedIndex);
 
   return new Promise<T>((resolve) => {
@@ -52,6 +64,7 @@ export async function promptSelect<T extends string>(question: string, options: 
     const cleanup = () => {
       input.off("keypress", onKeypress);
       input.setRawMode(false);
+      input.pause();
       output.write(SHOW_CURSOR);
       output.write("\n");
     };
@@ -121,6 +134,7 @@ export async function promptMultiSelect<T extends string>(
     const cleanup = () => {
       input.off("keypress", onKeypress);
       input.setRawMode(false);
+      input.pause();
       output.write(SHOW_CURSOR);
       output.write("\n");
     };
@@ -143,7 +157,7 @@ export async function promptText(question: string, defaultValue?: string, secret
   const rl = readlinePromises.createInterface({ input, output });
   const answer = await rl.question(`${question}${suffix}: `);
   rl.close();
-  input.resume();
+  input.pause();
 
   if (secret) {
     output.write("\n");

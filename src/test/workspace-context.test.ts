@@ -8,7 +8,11 @@ import {
   clearWorkspaceRoot,
   ensureWorkspaceInitialized,
   getWorkspaceAgentFilePath,
+  getWorkspaceIdentityFilePath,
+  getWorkspacePersonalityFilePath,
   readWorkspaceAgentFile,
+  readWorkspaceIdentityFile,
+  readWorkspacePersonalityFile,
   setWorkspaceRoot,
 } from "../index.js";
 
@@ -23,9 +27,44 @@ test("workspace initialization seeds AGENT.md", async () => {
     assert.equal(fileInfo.isFile(), true);
 
     const content = await readWorkspaceAgentFile();
-    assert.match(content ?? "", /Workspace Agent/);
-    assert.match(content ?? "", /## Role/);
-    assert.match(content ?? "", /## Workspace Responsibilities/);
+    assert.match(content ?? "", /# AGENT\.md/);
+    assert.match(content ?? "", /This Agent exists to stay close to the user/);
+  } finally {
+    clearWorkspaceRoot();
+  }
+});
+
+test("workspace initialization seeds PERSONALITY.md", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "malikraw-workspace-"));
+  setWorkspaceRoot(workspace);
+
+  try {
+    await ensureWorkspaceInitialized();
+
+    const fileInfo = await stat(getWorkspacePersonalityFilePath());
+    assert.equal(fileInfo.isFile(), true);
+
+    const content = await readWorkspacePersonalityFile();
+    assert.match(content ?? "", /# PERSONALITY\.md/);
+    assert.match(content ?? "", /Malikraw should feel warm, alive, and close to the user/);
+  } finally {
+    clearWorkspaceRoot();
+  }
+});
+
+test("workspace initialization seeds IDENTITY.md", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "malikraw-workspace-"));
+  setWorkspaceRoot(workspace);
+
+  try {
+    await ensureWorkspaceInitialized();
+
+    const fileInfo = await stat(getWorkspaceIdentityFilePath());
+    assert.equal(fileInfo.isFile(), true);
+
+    const content = await readWorkspaceIdentityFile();
+    assert.match(content ?? "", /Malikraw Identity/);
+    assert.match(content ?? "", /## Who You Are/);
   } finally {
     clearWorkspaceRoot();
   }

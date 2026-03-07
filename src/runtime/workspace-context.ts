@@ -1,7 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getMalikrawHomeDirectory } from "../core/config/config-store.js";
-import { readDefaultAgentTemplateFile } from "./system-template-context.js";
+import {
+  readDefaultAgentTemplateFile,
+  readDefaultIdentityTemplateFile,
+  readDefaultPersonalityTemplateFile,
+} from "./system-template-context.js";
 
 let workspaceRootOverride: string | undefined;
 
@@ -29,17 +33,39 @@ export function getWorkspaceAgentFilePath(): string {
   return path.join(getWorkspaceRoot(), "AGENT.md");
 }
 
+export function getWorkspacePersonalityFilePath(): string {
+  return path.join(getWorkspaceRoot(), "PERSONALITY.md");
+}
+
+export function getWorkspaceIdentityFilePath(): string {
+  return path.join(getWorkspaceRoot(), "IDENTITY.md");
+}
+
 export async function ensureWorkspaceInitialized(): Promise<void> {
   const workspaceRoot = getWorkspaceRoot();
   await mkdir(workspaceRoot, { recursive: true });
   await mkdir(getSkillsDirectory(), { recursive: true });
   await mkdir(path.join(getRuntimeDirectory(), "processes"), { recursive: true });
+  await seedWorkspaceIdentityFile();
+  await seedWorkspacePersonalityFile();
   await seedWorkspaceAgentFile();
 }
 
 export async function readWorkspaceAgentFile(): Promise<string | undefined> {
+  return readOptionalWorkspaceFile(getWorkspaceAgentFilePath());
+}
+
+export async function readWorkspacePersonalityFile(): Promise<string | undefined> {
+  return readOptionalWorkspaceFile(getWorkspacePersonalityFilePath());
+}
+
+export async function readWorkspaceIdentityFile(): Promise<string | undefined> {
+  return readOptionalWorkspaceFile(getWorkspaceIdentityFilePath());
+}
+
+async function readOptionalWorkspaceFile(filePath: string): Promise<string | undefined> {
   try {
-    const content = await readFile(getWorkspaceAgentFilePath(), "utf8");
+    const content = await readFile(filePath, "utf8");
     const trimmed = content.trim();
     return trimmed ? trimmed : undefined;
   } catch (error) {
@@ -50,6 +76,24 @@ export async function readWorkspaceAgentFile(): Promise<string | undefined> {
 
     throw error;
   }
+}
+
+async function seedWorkspacePersonalityFile(): Promise<void> {
+  const content = await readDefaultPersonalityTemplateFile();
+  if (!content) {
+    throw new Error("Default PERSONALITY.md template is empty.");
+  }
+
+  await writeFileIfMissing(getWorkspacePersonalityFilePath(), content);
+}
+
+async function seedWorkspaceIdentityFile(): Promise<void> {
+  const content = await readDefaultIdentityTemplateFile();
+  if (!content) {
+    throw new Error("Default IDENTITY.md template is empty.");
+  }
+
+  await writeFileIfMissing(getWorkspaceIdentityFilePath(), content);
 }
 
 async function seedWorkspaceAgentFile(): Promise<void> {

@@ -1,5 +1,6 @@
 import { loadRuntimeConfig } from "../core/config/agent-config.js";
 import {
+  loadConfigBundle,
   type StoredAgentConfig,
   type StoredAgentProviderMappingConfig,
   type StoredAgentsConfig,
@@ -12,7 +13,7 @@ import {
 import { startBackgroundService } from "./service-manager.js";
 import { installBundledSkills, listBundledSkillIds } from "../runtime/bundled-skills.js";
 import { getWorkspaceRoot } from "../runtime/workspace-context.js";
-import { promptMultiSelect, promptSelect, promptText } from "./terminal-ui.js";
+import { promptMultiSelect, promptSelectWithDefault, promptText } from "./terminal-ui.js";
 
 type AgentMode = "single" | "multi";
 type YesNo = "yes" | "no";
@@ -21,39 +22,65 @@ export async function runOnboardWizard(): Promise<void> {
   console.log("malikraw onboard");
   console.log("");
 
-  const profile = await promptSelect("Choose a provider profile", [
+  const existing = loadConfigBundle();
+  const existingProvider = getExistingProvider(existing);
+  const existingAgents = existing.agents?.agents ?? [];
+  const existingDefaultAgent = existing.agents?.defaultAgentId
+    ? existingAgents.find((agent) => agent.id === existing.agents?.defaultAgentId) ?? existingAgents[0]
+    : existingAgents[0];
+  const defaultProfile = existingProvider?.profile ?? "openai";
+
+  const profile = await promptSelectWithDefault("Choose a provider profile", [
     { label: "OpenAI-compatible", value: "openai" },
     { label: "DeepSeek-compatible", value: "deepseek" },
     { label: "Qwen-compatible", value: "qwen" },
-  ]);
+  ], defaultProfile);
 
-  const providerId = await promptText("Provider id", "default");
-  const baseURL = await promptText("Provider base URL", defaultBaseUrlForProfile(profile));
-  const apiKey = await promptText("Provider API key", "dummy");
-  const model = await promptText("Model name", defaultModelForProfile(profile));
-  const temperature = await promptOptionalNumber("Temperature", "0.2");
-  const maxTokens = await promptOptionalNumber("Max tokens", "");
+  const providerId = await promptText("Provider id", existingProvider?.id || "default");
+  const baseURL = await promptText(
+    "Provider base URL",
+    existingProvider?.baseURL || defaultBaseUrlForProfile(profile),
+  );
+  const apiKey = await promptText("Provider API key", existingProvider?.apiKey || "dummy");
+  const model = await promptText("Model name", existingProvider?.model || defaultModelForProfile(profile));
+  const temperature = await promptOptionalNumber(
+    "Temperature",
+    existingProvider?.temperature !== undefined ? String(existingProvider.temperature) : "0.2",
+  );
+  const maxTokens = await promptOptionalNumber(
+    "Max tokens",
+    existingProvider?.maxTokens !== undefined ? String(existingProvider.maxTokens) : "",
+  );
 
-  const gatewayPort = await promptRequiredNumber("Gateway port", "5050");
-  const workspaceRoot = await promptText("Workspace path", getWorkspaceRoot());
-  const maxIterations = await promptRequiredNumber("Max iterations", "8");
-  const debugModelMessages = await promptSelect("Enable model message debug logging?", [
+  const gatewayPort = await promptRequiredNumber(
+    "Gateway port",
+    String(existing.system?.gatewayPort ?? 5050),
+  );
+  const workspaceRoot = await promptText(
+    "Workspace path",
+    existing.workspace?.workspaceRoot || getWorkspaceRoot(),
+  );
+  const maxIterations = await promptRequiredNumber(
+    "Max iterations",
+    String(existing.system?.maxIterations ?? 8),
+  );
+  const debugModelMessages = await promptSelectWithDefault("Enable model message debug logging?", [
     { label: "No", value: "no" },
     { label: "Yes", value: "yes" },
-  ]);
+  ], existing.system?.debugModelMessages ? "yes" : "no");
 
-  const agentMode = await promptSelect("Agent mode", [
+  const agentMode = await promptSelectWithDefault("Agent mode", [
     { label: "Single agent", value: "single" },
     { label: "Multi agent", value: "multi" },
-  ]);
+  ], existingAgents.length > 1 ? "multi" : "single");
 
   const availableSkillIds = await listBundledSkillIds();
-  const agents = await collectAgents(agentMode, providerId, availableSkillIds);
+  const agents = await collectAgents(agentMode, providerId, availableSkillIds, existingAgents);
   const defaultAgentId = agents[0]?.id ?? "primary";
-  const startNow = await promptSelect("Start service now?", [
+  const startNow = await promptSelectWithDefault("Start service now?", [
     { label: "Yes", value: "yes" },
     { label: "No", value: "no" },
-  ]);
+  ], "no");
 
   const system: StoredSystemConfig = {
     gatewayPort,
@@ -103,7 +130,7 @@ export async function runOnboardWizard(): Promise<void> {
   console.log(`Installed skills into ${workspaceRoot}/skills`);
 
   if (startNow === "yes") {
-    loadRuntimeConfig(process.env);
+    loadRuntimeConfig();
     const status = startBackgroundService();
     console.log("Service started.");
     console.log(`pid: ${status.running ? status.pid : "unknown"}`);
@@ -114,10 +141,15 @@ async function collectAgents(
   agentMode: AgentMode,
   providerId: string,
   availableSkillIds: string[],
+  existingAgents: StoredAgentConfig[],
 ): Promise<StoredAgentConfig[]> {
   if (agentMode === "single") {
-    const agentId = await promptText("Agent id", "primary");
-    const activeSkills = await selectSkillsForAgent(availableSkillIds, ["workspace_operator"]);
+    const existingAgent = existingAgents[0];
+    const agentId = await promptText("Agent id", existingAgent?.id || "primary");
+    const activeSkills = await selectSkillsForAgent(
+      availableSkillIds,
+      existingAgent?.activeSkillIds ?? ["workspace_operator"],
+    );
     return [{
       id: agentId,
       activeSkillIds: activeSkills,
@@ -125,14 +157,21 @@ async function collectAgents(
     }];
   }
 
-  const agentCount = await promptRequiredNumber("How many agents?", "2");
+  const agentCount = await promptRequiredNumber(
+    "How many agents?",
+    String(existingAgents.length > 1 ? existingAgents.length : 2),
+  );
   const agents: StoredAgentConfig[] = [];
   for (let index = 0; index < agentCount; index += 1) {
     console.log("");
     console.log(`Agent ${index + 1}`);
+    const existingAgent = existingAgents[index];
     const fallbackId = index === 0 ? "planner" : index === 1 ? "executor" : `agent-${index + 1}`;
-    const agentId = await promptText("Agent id", fallbackId);
-    const activeSkills = await selectSkillsForAgent(availableSkillIds, ["workspace_operator"]);
+    const agentId = await promptText("Agent id", existingAgent?.id || fallbackId);
+    const activeSkills = await selectSkillsForAgent(
+      availableSkillIds,
+      existingAgent?.activeSkillIds ?? ["workspace_operator"],
+    );
     agents.push({
       id: agentId,
       activeSkillIds: activeSkills,
@@ -223,4 +262,12 @@ function defaultModelForProfile(profile: StoredProviderConfig["profile"]): strin
   }
 
   return "gpt-4.1-mini";
+}
+
+function getExistingProvider(
+  existing: ReturnType<typeof loadConfigBundle>,
+): StoredProviderConfig | undefined {
+  const defaultProviderId = existing.providers?.defaultProviderId;
+  return existing.providers?.providers.find((provider) => provider.id === defaultProviderId)
+    ?? existing.providers?.providers[0];
 }

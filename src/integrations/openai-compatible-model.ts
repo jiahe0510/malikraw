@@ -113,9 +113,13 @@ function parseJson(value: string): unknown {
 }
 
 function normalizeAssistantContent(content: string | null | undefined): string {
-  return content?.trim() || "";
+  return stripThinkBlocks(content ?? "").trim();
 }
 
 function buildChatCompletionsUrl(baseURL: string): string {
   return `${baseURL.replace(/\/+$/, "")}/chat/completions`;
+}
+
+function stripThinkBlocks(content: string): string {
+  return content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }

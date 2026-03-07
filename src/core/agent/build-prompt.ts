@@ -8,6 +8,7 @@ export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
       role: "system",
       content: input.globalPolicy.trim(),
     },
+    ...toSystemMessages("Identity", input.identitySystemContent),
     ...toSystemMessages("Personality", input.personalitySystemContent),
     ...toSystemMessages("Workspace AGENT.md", input.agentSystemContent),
     {

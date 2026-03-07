@@ -17,3 +17,11 @@ export async function readBundledPersonalityFile(): Promise<string | undefined> 
 export async function readDefaultAgentTemplateFile(): Promise<string | undefined> {
   return readSystemTemplateFile("AGENT.md");
 }
+
+export async function readDefaultPersonalityTemplateFile(): Promise<string | undefined> {
+  return readSystemTemplateFile("PERSONALITY.md");
+}
+
+export async function readDefaultIdentityTemplateFile(): Promise<string | undefined> {
+  return readSystemTemplateFile("IDENTITY.md");
+}

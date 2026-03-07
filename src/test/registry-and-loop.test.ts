@@ -55,6 +55,7 @@ read before edit`));
 
   const prompt = buildPrompt({
     globalPolicy: "global policy",
+    identitySystemContent: "# Identity\n\nYou are Malikraw.",
     personalitySystemContent: "# Personality\n\nBe direct.",
     agentSystemContent: "# Agent Capabilities\n\nCan inspect workspace files.",
     userRequest: "update a file",
@@ -68,6 +69,7 @@ read before edit`));
   assert.equal(prompt.messages.at(-1)?.role, "user");
   const content = prompt.messages.map((message) => message.content).join("\n");
   assert.match(content, /recent deploy/);
+  assert.match(content, /Identity/);
   assert.match(content, /Personality/);
   assert.match(content, /Agent Capabilities/);
   assert.match(content, /Runtime Context/);
@@ -77,9 +79,11 @@ read before edit`));
   assert.equal(prompt.messages[0]?.role, "system");
   assert.equal(prompt.messages[0]?.content, "global policy");
   assert.equal(prompt.messages[1]?.role, "system");
-  assert.match(prompt.messages[1]?.content ?? "", /Personality/);
+  assert.match(prompt.messages[1]?.content ?? "", /Identity/);
   assert.equal(prompt.messages[2]?.role, "system");
-  assert.match(prompt.messages[2]?.content ?? "", /Workspace AGENT\.md/);
+  assert.match(prompt.messages[2]?.content ?? "", /Personality/);
+  assert.equal(prompt.messages[3]?.role, "system");
+  assert.match(prompt.messages[3]?.content ?? "", /Workspace AGENT\.md/);
 });
 
 test("getVisibleToolNames respects allowedTools on active skills", () => {

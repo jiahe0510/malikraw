@@ -24,6 +24,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
 
   const prompt = buildPrompt({
     globalPolicy: input.globalPolicy,
+    identitySystemContent: input.identitySystemContent,
     personalitySystemContent: input.personalitySystemContent,
     agentSystemContent: input.agentSystemContent,
     userRequest: input.userRequest,
