@@ -26,7 +26,7 @@
     "status": "node dist/cli.js status",
     "serve": "node dist/cli.js serve",
     "tui": "node dist/cli.js tui",
-    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "test": "npm run build && node --test $(find dist/test -type f -name '*.test.js')",
     "prepack": "npm run build"
   },
   "devDependencies": {
