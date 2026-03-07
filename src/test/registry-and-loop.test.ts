@@ -55,6 +55,7 @@ read before edit`));
 
   const prompt = buildPrompt({
     globalPolicy: "global policy",
+    agentSystemContent: "# Agent Capabilities\n\nCan inspect workspace files.",
     userRequest: "update a file",
     activeSkills: selected.skills,
     toolSummary: "- read_file: read file\n- edit_file: edit file",
@@ -65,6 +66,7 @@ read before edit`));
   assert.equal(prompt.activeSkillIds[0], "workspace_operator");
   assert.equal(prompt.messages.at(-1)?.role, "user");
   assert.match(prompt.messages.map((message) => message.content).join("\n"), /recent deploy/);
+  assert.match(prompt.messages.map((message) => message.content).join("\n"), /Agent Capabilities/);
   assert.match(prompt.messages.map((message) => message.content).join("\n"), /Runtime Context/);
   assert.match(prompt.messages.map((message) => message.content).join("\n"), /Active Skills/);
   assert.doesNotMatch(prompt.messages.map((message) => message.content).join("\n"), /<skill name=/);

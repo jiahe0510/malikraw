@@ -12,6 +12,7 @@ import {
   ensureWorkspaceInitialized,
   getSkillsDirectory,
   getWorkspaceRoot,
+  readWorkspaceAgentFile,
   setWorkspaceRoot,
 } from "./workspace-context.js";
 
@@ -39,12 +40,14 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
   return {
     workspaceRoot: getWorkspaceRoot(),
     ask: async (userRequest: string) => {
+      const agentSystemContent = await readWorkspaceAgentFile();
       const result = await runAgentLoop({
         model,
         toolRegistry,
         skillRegistry,
         skillRouter: new ManualSkillRouter(config.activeSkillIds),
         globalPolicy: config.globalPolicy,
+        agentSystemContent,
         userRequest,
         stateSummary: config.stateSummary,
         memorySummary: config.memorySummary,

@@ -8,6 +8,7 @@ export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
       role: "system",
       content: input.globalPolicy.trim(),
     },
+    ...toAgentSystemMessages(input.agentSystemContent),
     {
       role: "developer",
       content: buildRuntimeContextBlock(input),
@@ -54,6 +55,18 @@ export function getVisibleToolNames(
   }
 
   return [...visible];
+}
+
+function toAgentSystemMessages(agentSystemContent: string | undefined): PromptMessage[] {
+  const trimmed = agentSystemContent?.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  return [{
+    role: "system",
+    content: ["Workspace AGENT.md", trimmed].join("\n\n"),
+  }];
 }
 
 function buildRuntimeContextBlock(input: AgentPromptInput): string {
