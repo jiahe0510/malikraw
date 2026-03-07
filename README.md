@@ -101,6 +101,12 @@ Run tests:
 npm test
 ```
 
+## CI/CD
+
+- CI runs on GitHub Actions for pushes to `main` and pull requests
+- npm publish is handled by GitHub Actions on version tags like `v0.1.0`
+- npm publishing requires an `NPM_TOKEN` repository secret with publish access
+
 ## Notes
 
 - Default workspace path is `~/.malikraw/workspace`

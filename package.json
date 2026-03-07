@@ -1,8 +1,17 @@
 {
-  "name": "malikraw-agent-core",
+  "name": "@jiahe0510/malikraw",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
+  "files": [
+    "dist",
+    "skills",
+    "templates/system",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "malikraw": "dist/cli.js"
   },
@@ -17,7 +26,8 @@
     "status": "node dist/cli.js status",
     "serve": "node dist/cli.js serve",
     "tui": "node dist/cli.js tui",
-    "test": "npm run build && node --test dist/test/**/*.test.js"
+    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^25.3.5",
