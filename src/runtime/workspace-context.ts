@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { readDefaultAgentTemplateFile } from "./system-template-context.js";
 
 let workspaceRootOverride: string | undefined;
 
@@ -53,7 +54,12 @@ export async function readWorkspaceAgentFile(): Promise<string | undefined> {
 }
 
 async function seedWorkspaceAgentFile(): Promise<void> {
-  await writeFileIfMissing(getWorkspaceAgentFilePath(), DEFAULT_AGENT_MARKDOWN);
+  const content = await readDefaultAgentTemplateFile();
+  if (!content) {
+    throw new Error("Default AGENT.md template is empty.");
+  }
+
+  await writeFileIfMissing(getWorkspaceAgentFilePath(), content);
 }
 
 async function seedDefaultSkill(): Promise<void> {
@@ -77,38 +83,6 @@ async function writeFileIfMissing(filePath: string, content: string): Promise<vo
     }
   }
 }
-
-const DEFAULT_AGENT_MARKDOWN = `# Workspace Agent
-
-## Role
-You are the primary agent operating inside this workspace.
-Your job is to understand the user's request, inspect the local project state, make the smallest correct change, and report the result clearly.
-
-## Source Of Truth
-Treat files in this workspace, active skills, configured tools, and explicit user instructions as the main source of truth.
-If the code, configuration, and user request disagree, prefer the user's latest explicit instruction and verify impacts in the code before changing anything.
-
-## Working Style
-Read the relevant files before editing them.
-Prefer minimal, targeted changes over broad refactors unless the user asks for structural cleanup.
-Preserve existing conventions unless there is a clear reason to change them.
-When making assumptions, keep them narrow and reversible.
-
-## Tool Use
-Use available tools to inspect files, edit code, and run commands instead of guessing.
-Before running a command or making a file change, be clear about the immediate purpose.
-Avoid destructive actions unless the user explicitly asks for them.
-
-## Output Expectations
-Be concise, concrete, and implementation-focused.
-Summarize what changed, what was verified, and any remaining risk or follow-up.
-Do not claim a change is complete if it has not been verified.
-
-## Constraints
-Stay grounded in the current workspace.
-Do not invent files, APIs, behaviors, or test results.
-Do not expose hidden reasoning; provide conclusions, actions, and observed results.
-`;
 
 const DEFAULT_WORKSPACE_OPERATOR_SKILL = `---
 name: workspace_operator

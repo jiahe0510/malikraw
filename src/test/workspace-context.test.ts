@@ -25,6 +25,7 @@ test("workspace initialization seeds AGENT.md", async () => {
     const content = await readWorkspaceAgentFile();
     assert.match(content ?? "", /Workspace Agent/);
     assert.match(content ?? "", /## Role/);
+    assert.match(content ?? "", /## Workspace Responsibilities/);
   } finally {
     clearWorkspaceRoot();
   }

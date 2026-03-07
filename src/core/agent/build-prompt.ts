@@ -8,7 +8,8 @@ export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
       role: "system",
       content: input.globalPolicy.trim(),
     },
-    ...toAgentSystemMessages(input.agentSystemContent),
+    ...toSystemMessages("Personality", input.personalitySystemContent),
+    ...toSystemMessages("Workspace AGENT.md", input.agentSystemContent),
     {
       role: "developer",
       content: buildRuntimeContextBlock(input),
@@ -57,15 +58,15 @@ export function getVisibleToolNames(
   return [...visible];
 }
 
-function toAgentSystemMessages(agentSystemContent: string | undefined): PromptMessage[] {
-  const trimmed = agentSystemContent?.trim();
+function toSystemMessages(title: string, content: string | undefined): PromptMessage[] {
+  const trimmed = content?.trim();
   if (!trimmed) {
     return [];
   }
 
   return [{
     role: "system",
-    content: ["Workspace AGENT.md", trimmed].join("\n\n"),
+    content: [title, trimmed].join("\n\n"),
   }];
 }
 

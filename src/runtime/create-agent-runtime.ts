@@ -8,6 +8,7 @@ import {
   runAgentLoop,
 } from "../index.js";
 import type { RuntimeConfig } from "../core/config/agent-config.js";
+import { readBundledPersonalityFile } from "./system-template-context.js";
 import {
   ensureWorkspaceInitialized,
   getSkillsDirectory,
@@ -27,6 +28,7 @@ export type AgentRuntime = {
 export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRuntime> {
   setWorkspaceRoot(config.workspaceRoot);
   await ensureWorkspaceInitialized();
+  const personalitySystemContent = await readBundledPersonalityFile();
 
   const toolRegistry = registerBuiltinTools(new ToolRegistry());
   const skillRegistry = new SkillRegistry();
@@ -47,6 +49,7 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         skillRegistry,
         skillRouter: new ManualSkillRouter(config.activeSkillIds),
         globalPolicy: config.globalPolicy,
+        personalitySystemContent,
         agentSystemContent,
         userRequest,
         stateSummary: config.stateSummary,
