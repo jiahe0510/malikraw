@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { appendFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { defineTool, s, type ToolSpec } from "../core/tool-registry/index.js";
@@ -65,6 +65,7 @@ async function startProcess(command: string, cwd?: string): Promise<Record<strin
   const workdir = cwd ? resolveWorkspacePath(cwd) : getWorkspaceRoot();
   const logDirectory = await createProcessLogDirectory();
   const logPath = path.join(logDirectory, "output.log");
+  await writeFile(logPath, "", "utf8");
   const child = spawn(command, {
     cwd: workdir,
     shell: true,
@@ -140,6 +141,5 @@ function serializeProcess(processInfo: ManagedProcess): Record<string, unknown> 
 
 async function appendLog(logPath: string, chunk: unknown): Promise<void> {
   const content = typeof chunk === "string" ? chunk : Buffer.from(chunk as Uint8Array).toString("utf8");
-  const existing = (await readOptionalFile(logPath)) ?? "";
-  await writeFile(logPath, existing + content, "utf8");
+  await appendFile(logPath, content, "utf8");
 }
