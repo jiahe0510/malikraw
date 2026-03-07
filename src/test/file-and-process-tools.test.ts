@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -84,19 +84,8 @@ test("manage_process can start, inspect, and stop a background process", async (
     const processId = processData.processId;
     assert.ok(processId);
 
-    await new Promise((resolve) => setTimeout(resolve, 80));
-
-    const statusResult = await registry.execute("manage_process", {
-      action: "status",
-      processId,
-    });
-    assert.equal(statusResult.ok, true);
-    if (statusResult.ok) {
-      const data = statusResult.data as { logPath: string };
-      const logPath = data.logPath;
-      const log = await readFile(logPath, "utf8");
-      assert.match(log, /done/);
-    }
+    const output = await waitForProcessOutput(registry, processId, /done/);
+    assert.match(output, /done/);
 
     const stopResult = await registry.execute("manage_process", {
       action: "stop",
@@ -107,3 +96,30 @@ test("manage_process can start, inspect, and stop a background process", async (
     clearWorkspaceRoot();
   }
 });
+
+async function waitForProcessOutput(
+  registry: ToolRegistry,
+  processId: string,
+  pattern: RegExp,
+): Promise<string> {
+  const deadline = Date.now() + 3000;
+
+  while (Date.now() < deadline) {
+    const statusResult = await registry.execute("manage_process", {
+      action: "status",
+      processId,
+    });
+    assert.equal(statusResult.ok, true);
+    if (statusResult.ok) {
+      const data = statusResult.data as { output?: string };
+      const output = data.output ?? "";
+      if (pattern.test(output)) {
+        return output;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`Timed out waiting for process ${processId} output to match ${pattern}.`);
+}
