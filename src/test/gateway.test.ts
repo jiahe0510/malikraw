@@ -89,15 +89,60 @@ test("gateway isolates sessions by channel and session id", async () => {
   });
 
   await gateway.handleMessage({
-    session: { channelId: "tui", sessionId: "one" },
+    session: { agentId: "alpha", channelId: "tui", sessionId: "one" },
     content: "a",
   });
   await gateway.handleMessage({
-    session: { channelId: "tui", sessionId: "two" },
+    session: { agentId: "alpha", channelId: "tui", sessionId: "two" },
     content: "b",
   });
   await gateway.handleMessage({
-    session: { channelId: "tui", sessionId: "one" },
+    session: { agentId: "alpha", channelId: "tui", sessionId: "one" },
+    content: "c",
+  });
+
+  assert.deepEqual(seenHistories, [
+    [],
+    [],
+    ["a", "a"],
+  ]);
+});
+
+test("gateway isolates sessions by agent id", async () => {
+  const seenHistories: Array<string[]> = [];
+
+  const runtime: AgentRuntime = {
+    workspaceRoot: "/tmp/workspace",
+    ask: async ({ userRequest, history }) => {
+      seenHistories.push((history ?? []).map((message) => message.content));
+      return {
+        output: userRequest,
+        visibleToolNames: [],
+        messages: [
+          ...(history ?? []),
+          { role: "user", content: userRequest },
+          { role: "assistant", content: userRequest },
+        ],
+      };
+    },
+  };
+
+  const gateway = new Gateway(runtime);
+  gateway.registerChannel({
+    id: "feishu",
+    sendMessage: () => {},
+  });
+
+  await gateway.handleMessage({
+    session: { agentId: "planner", channelId: "feishu", sessionId: "thread-1" },
+    content: "a",
+  });
+  await gateway.handleMessage({
+    session: { agentId: "executor", channelId: "feishu", sessionId: "thread-1" },
+    content: "b",
+  });
+  await gateway.handleMessage({
+    session: { agentId: "planner", channelId: "feishu", sessionId: "thread-1" },
     content: "c",
   });
 

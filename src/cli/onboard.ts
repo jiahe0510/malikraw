@@ -4,6 +4,9 @@ import {
   type StoredAgentConfig,
   type StoredAgentProviderMappingConfig,
   type StoredAgentsConfig,
+  type StoredChannelConfig,
+  type StoredChannelsConfig,
+  type StoredFeishuChannelConfig,
   type StoredProviderConfig,
   type StoredProvidersConfig,
   type StoredSystemConfig,
@@ -68,7 +71,6 @@ export async function runOnboardWizard(): Promise<void> {
     { label: "No", value: "no" },
     { label: "Yes", value: "yes" },
   ], existing.system?.debugModelMessages ? "yes" : "no");
-
   const agentMode = await promptSelectWithDefault("Agent mode", [
     { label: "Single agent", value: "single" },
     { label: "Multi agent", value: "multi" },
@@ -77,6 +79,7 @@ export async function runOnboardWizard(): Promise<void> {
   const availableSkillIds = await listBundledSkillIds();
   const agents = await collectAgents(agentMode, providerId, availableSkillIds, existingAgents);
   const defaultAgentId = agents[0]?.id ?? "primary";
+  const channels = await collectChannels(existing.channels?.channels ?? [], defaultAgentId, agents.map((agent) => agent.id));
   const startNow = await promptSelectWithDefault("Start service now?", [
     { label: "Yes", value: "yes" },
     { label: "No", value: "no" },
@@ -107,6 +110,10 @@ export async function runOnboardWizard(): Promise<void> {
   const workspace: StoredWorkspaceConfig = {
     workspaceRoot,
   };
+  const storedChannels: StoredChannelsConfig = {
+    defaultChannelId: channels[0]?.id ?? "http",
+    channels,
+  };
   const storedAgents: StoredAgentsConfig = {
     defaultAgentId,
     agents,
@@ -117,6 +124,7 @@ export async function runOnboardWizard(): Promise<void> {
     providers,
     agentProviderMapping,
     workspace,
+    channels: storedChannels,
     agents: storedAgents,
   });
 
@@ -180,6 +188,83 @@ async function collectAgents(
   }
 
   return agents;
+}
+
+async function collectChannels(
+  existingChannels: StoredChannelConfig[],
+  defaultAgentId: string,
+  agentIds: string[],
+): Promise<StoredChannelConfig[]> {
+  const existingHttp = existingChannels.find((channel): channel is Extract<StoredChannelConfig, { type: "http" }> =>
+    channel.type === "http"
+  );
+  const existingFeishu = existingChannels.find(
+    (channel): channel is StoredFeishuChannelConfig => channel.type === "feishu",
+  );
+
+  const enableHttp = await promptSelectWithDefault("Enable HTTP channel?", [
+    { label: "Yes", value: "yes" },
+    { label: "No", value: "no" },
+  ], existingHttp ? "yes" : "yes");
+
+  const enableFeishu = await promptSelectWithDefault("Enable Feishu channel?", [
+    { label: "No", value: "no" },
+    { label: "Yes", value: "yes" },
+  ], existingFeishu ? "yes" : "no");
+
+  const channels: StoredChannelConfig[] = [];
+  if (enableHttp === "yes") {
+    const httpAgentId = await promptSelectWithDefault("HTTP channel agent", agentIds.map((agentId) => ({
+      label: agentId,
+      value: agentId,
+    })), existingHttp?.agentId || defaultAgentId);
+    channels.push({
+      id: await promptText("HTTP channel id", existingHttp?.id || "http"),
+      type: "http",
+      agentId: httpAgentId,
+    });
+  }
+
+  if (enableFeishu === "yes") {
+    channels.push(await collectFeishuChannel(existingFeishu, defaultAgentId, agentIds));
+  }
+
+  if (channels.length > 0) {
+    return channels;
+  }
+
+  return [{ id: "http", type: "http" }];
+}
+
+async function collectFeishuChannel(
+  existingChannel: StoredFeishuChannelConfig | undefined,
+  defaultAgentId: string,
+  agentIds: string[],
+): Promise<StoredFeishuChannelConfig> {
+  const replyMode = await promptSelectWithDefault("Feishu reply mode", [
+    { label: "Send to chat", value: "chat" },
+    { label: "Reply to message", value: "reply" },
+    { label: "Reply in thread", value: "thread" },
+  ], existingChannel?.replyMode ?? (existingChannel?.autoReplyInThread ? "thread" : "chat"));
+  const agentId = await promptSelectWithDefault("Feishu channel agent", agentIds.map((value) => ({
+    label: value,
+    value,
+  })), existingChannel?.agentId || defaultAgentId);
+
+  return {
+    id: await promptText("Feishu channel id", existingChannel?.id || "feishu"),
+    type: "feishu",
+    appId: await promptText("Feishu app id", existingChannel?.appId || ""),
+    appSecret: await promptText("Feishu app secret", existingChannel?.appSecret || ""),
+    agentId,
+    verificationToken: emptyToUndefined(
+      await promptText("Feishu verification token", existingChannel?.verificationToken || ""),
+    ),
+    encryptKey: emptyToUndefined(
+      await promptText("Feishu encrypt key", existingChannel?.encryptKey || ""),
+    ),
+    replyMode,
+  };
 }
 
 function compactProviderConfig(provider: StoredProviderConfig): StoredProviderConfig {
@@ -262,6 +347,10 @@ function defaultModelForProfile(profile: StoredProviderConfig["profile"]): strin
   }
 
   return "gpt-4.1-mini";
+}
+
+function emptyToUndefined(value: string): string | undefined {
+  return value.trim() || undefined;
 }
 
 function getExistingProvider(

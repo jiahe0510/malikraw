@@ -42,6 +42,21 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
       workspace: {
         workspaceRoot: path.join(malikrawHome, "workspace"),
       },
+      channels: {
+        defaultChannelId: "http",
+        channels: [{
+          id: "http",
+          type: "http",
+          agentId: "primary",
+        }, {
+          id: "feishu",
+          type: "feishu",
+          appId: "cli_a",
+          appSecret: "secret",
+          agentId: "primary",
+          replyMode: "chat",
+        }],
+      },
       agents: {
         defaultAgentId: "primary",
         agents: [{
@@ -67,6 +82,31 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
     assert.equal(config.maxIterations, 12);
     assert.equal(config.debugModelMessages, true);
     assert.equal(config.gatewayPort, 6060);
+    assert.equal(config.defaultAgentId, "primary");
+    assert.deepEqual(config.channels, [{
+      id: "http",
+      type: "http",
+      agentId: "primary",
+    }, {
+      id: "feishu",
+      type: "feishu",
+      appId: "cli_a",
+      appSecret: "secret",
+      agentId: "primary",
+      replyMode: "chat",
+    }]);
+    assert.deepEqual(config.agents, [{
+      id: "primary",
+      model: {
+        baseURL: "https://example.invalid/v1",
+        apiKey: "stored-key",
+        model: "stored-model",
+        profile: "openai",
+        temperature: 0.3,
+        maxTokens: 2048,
+      },
+      activeSkillIds: ["workspace_operator", "reviewer"],
+    }]);
   } finally {
     if (previousHome === undefined) {
       delete process.env.MALIKRAW_HOME;
@@ -111,6 +151,14 @@ test("loadRuntimeConfig ignores OPENAI environment variables and uses stored con
       workspace: {
         workspaceRoot: path.join(malikrawHome, "workspace"),
       },
+      channels: {
+        defaultChannelId: "http",
+        channels: [{
+          id: "http",
+          type: "http",
+          agentId: "primary",
+        }],
+      },
       agents: {
         defaultAgentId: "primary",
         agents: [{
@@ -125,6 +173,12 @@ test("loadRuntimeConfig ignores OPENAI environment variables and uses stored con
 
     assert.equal(config.model.baseURL, "https://stored.example/v1");
     assert.equal(config.model.model, "stored-model");
+    assert.equal(config.defaultAgentId, "primary");
+    assert.deepEqual(config.channels, [{
+      id: "http",
+      type: "http",
+      agentId: "primary",
+    }]);
   } finally {
     if (previousHome === undefined) {
       delete process.env.MALIKRAW_HOME;

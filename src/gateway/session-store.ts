@@ -19,5 +19,5 @@ export class InMemorySessionStore implements SessionStore {
 }
 
 function toSessionKey(session: ChannelSession): string {
-  return `${session.channelId}:${session.sessionId}`;
+  return `${session.agentId ?? "default"}:${session.channelId}:${session.sessionId}`;
 }

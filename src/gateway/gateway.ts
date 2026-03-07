@@ -13,7 +13,7 @@ export class Gateway {
   private readonly channels = new Map<string, GatewayChannel>();
 
   constructor(
-    private readonly runtime: AgentRuntime,
+    private readonly runtimeResolver: AgentRuntime | ((agentId?: string) => AgentRuntime),
     private readonly sessionStore: SessionStore = new InMemorySessionStore(),
   ) {}
 
@@ -31,8 +31,17 @@ export class Gateway {
       throw new Error(`Channel "${message.session.channelId}" is not registered.`);
     }
 
+    const runtime = this.resolveRuntime(message.session.agentId);
     const history = await this.sessionStore.read(message.session);
-    const result = await this.runtime.ask({
+    logGatewayEvent("inbound", {
+      agentId: message.session.agentId ?? "default",
+      channelId: message.session.channelId,
+      sessionId: message.session.sessionId,
+      historyLength: history.length,
+      contentPreview: message.content,
+    });
+
+    const result = await runtime.ask({
       userRequest: message.content,
       history,
     });
@@ -47,11 +56,27 @@ export class Gateway {
     };
     await channel.sendMessage(delivery);
 
+    logGatewayEvent("outbound", {
+      agentId: message.session.agentId ?? "default",
+      channelId: message.session.channelId,
+      sessionId: message.session.sessionId,
+      toolCount: result.visibleToolNames.length,
+      contentPreview: result.output,
+    });
+
     return {
       output: result.output,
       visibleToolNames: result.visibleToolNames,
       sessionMessages,
     };
+  }
+
+  private resolveRuntime(agentId?: string): AgentRuntime {
+    if (typeof this.runtimeResolver === "function") {
+      return this.runtimeResolver(agentId);
+    }
+
+    return this.runtimeResolver;
   }
 }
 
@@ -59,4 +84,27 @@ function filterSessionMessages(messages: AgentMessage[]): AgentMessage[] {
   return messages.filter((message) =>
     message.role === "user" || message.role === "assistant" || message.role === "tool",
   );
+}
+
+function logGatewayEvent(
+  direction: "inbound" | "outbound",
+  payload: {
+    agentId: string;
+    channelId: string;
+    sessionId: string;
+    contentPreview: string;
+    historyLength?: number;
+    toolCount?: number;
+  },
+): void {
+  const suffix = direction === "inbound"
+    ? `history=${payload.historyLength ?? 0}`
+    : `tools=${payload.toolCount ?? 0}`;
+  console.log(
+    `[gateway:${direction}] agent=${payload.agentId} channel=${payload.channelId} session=${payload.sessionId} ${suffix} preview=${JSON.stringify(truncate(payload.contentPreview))}`,
+  );
+}
+
+function truncate(value: string, maxLength = 120): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }

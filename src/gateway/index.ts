@@ -2,6 +2,7 @@ export type {
   ChannelDelivery,
   ChannelInboundMessage,
   ChannelSession,
+  ChannelStartContext,
   GatewayChannel,
 } from "./channel.js";
 export { Gateway } from "./gateway.js";

@@ -37,6 +37,31 @@ export type StoredWorkspaceConfig = {
   workspaceRoot: string;
 };
 
+export type StoredHttpChannelConfig = {
+  id: string;
+  type: "http";
+  agentId?: string;
+};
+
+export type StoredFeishuChannelConfig = {
+  id: string;
+  type: "feishu";
+  appId: string;
+  appSecret: string;
+  agentId?: string;
+  verificationToken?: string;
+  encryptKey?: string;
+  replyMode?: "chat" | "reply" | "thread";
+  autoReplyInThread?: boolean;
+};
+
+export type StoredChannelConfig = StoredHttpChannelConfig | StoredFeishuChannelConfig;
+
+export type StoredChannelsConfig = {
+  defaultChannelId: string;
+  channels: StoredChannelConfig[];
+};
+
 export type StoredAgentConfig = {
   id: string;
   activeSkillIds: string[];
@@ -53,6 +78,7 @@ export type MalikrawConfigBundle = {
   providers?: StoredProvidersConfig;
   agentProviderMapping?: StoredAgentProviderMappingConfig;
   workspace?: StoredWorkspaceConfig;
+  channels?: StoredChannelsConfig;
   agents?: StoredAgentsConfig;
 };
 
@@ -76,6 +102,7 @@ export function loadConfigBundle(): MalikrawConfigBundle {
     providers: readJsonFile<StoredProvidersConfig>("providers.json"),
     agentProviderMapping: readJsonFile<StoredAgentProviderMappingConfig>("agent-provider-mapping.json"),
     workspace: readJsonFile<StoredWorkspaceConfig>("workspace.json"),
+    channels: readJsonFile<StoredChannelsConfig>("channels.json"),
     agents: readJsonFile<StoredAgentsConfig>("agents.json"),
   };
 }
@@ -86,6 +113,7 @@ export function saveConfigBundle(bundle: Required<MalikrawConfigBundle>): void {
   writeJsonFile("providers.json", bundle.providers);
   writeJsonFile("agent-provider-mapping.json", bundle.agentProviderMapping);
   writeJsonFile("workspace.json", bundle.workspace);
+  writeJsonFile("channels.json", bundle.channels);
   writeJsonFile("agents.json", bundle.agents);
 }
 

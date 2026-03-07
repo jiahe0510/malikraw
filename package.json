@@ -32,5 +32,8 @@
   "devDependencies": {
     "@types/node": "^25.3.5",
     "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.59.0"
   }
 }

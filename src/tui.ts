@@ -13,8 +13,9 @@ export async function runTui(): Promise<void> {
   gateway.registerChannel(channel);
   const rl = readline.createInterface({ input, output });
   const sessionId = "default";
+  const agentId = config.defaultAgentId;
 
-  console.log("malikraw tui registered to gateway channel tui");
+  console.log(`malikraw tui registered to gateway channel tui for agent ${agentId}`);
   console.log('Type a request, or "/exit" to exit.');
 
   while (true) {
@@ -30,6 +31,7 @@ export async function runTui(): Promise<void> {
     try {
       await gateway.handleMessage({
         session: {
+          agentId,
           channelId: channel.id,
           sessionId,
         },

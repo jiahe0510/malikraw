@@ -1,4 +1,5 @@
 import type { ProviderProfile } from "../providers/compatibility-profile.js";
+import type { StoredChannelConfig } from "./config-store.js";
 import { loadConfigBundle } from "./config-store.js";
 import { getWorkspaceRoot } from "../../runtime/workspace-context.js";
 
@@ -15,6 +16,9 @@ export type RuntimeConfig = {
   model: OpenAICompatibleConfig;
   workspaceRoot: string;
   activeSkillIds: string[];
+  channels: StoredChannelConfig[];
+  defaultAgentId: string;
+  agents: RuntimeAgentConfig[];
   globalPolicy: string;
   stateSummary?: string;
   memorySummary?: string;
@@ -23,10 +27,18 @@ export type RuntimeConfig = {
   gatewayPort: number;
 };
 
+export type RuntimeAgentConfig = {
+  id: string;
+  model: OpenAICompatibleConfig;
+  activeSkillIds: string[];
+};
+
 export function loadRuntimeConfig(): RuntimeConfig {
   const stored = loadConfigBundle();
   const providerConfig = requireProviderConfig(stored);
   const agentConfig = selectAgentConfig(stored);
+  const agents = resolveRuntimeAgents(stored);
+  const defaultAgentId = agentConfig?.id ?? agents[0]?.id ?? "primary";
 
   return {
     model: {
@@ -41,6 +53,9 @@ export function loadRuntimeConfig(): RuntimeConfig {
     activeSkillIds: agentConfig?.activeSkillIds?.length
       ? agentConfig.activeSkillIds
       : ["workspace_operator"],
+    channels: normalizeChannels(stored.channels?.channels),
+    defaultAgentId,
+    agents,
     globalPolicy: stored.system?.globalPolicy
       ?? "Operate as a careful agent runtime. Prefer using tools over guessing. Be explicit about uncertainty.",
     stateSummary: stored.system?.stateSummary,
@@ -59,6 +74,25 @@ function selectProviderConfig(stored: ReturnType<typeof loadConfigBundle>) {
 
   const mappedProviderId = resolveProviderId(stored);
   return providers.find((provider) => provider.id === mappedProviderId)
+    ?? providers.find((provider) => provider.id === stored.providers?.defaultProviderId)
+    ?? providers[0];
+}
+
+function selectProviderConfigForAgent(
+  stored: ReturnType<typeof loadConfigBundle>,
+  agentId: string,
+) {
+  const providers = stored.providers?.providers ?? [];
+  if (providers.length === 0) {
+    return undefined;
+  }
+
+  const explicit = stored.agentProviderMapping?.mappings?.[agentId]
+    ?? stored.agents?.agents.find((agent) => agent.id === agentId)?.providerId
+    ?? stored.agentProviderMapping?.defaultProviderId
+    ?? stored.providers?.defaultProviderId;
+
+  return providers.find((provider) => provider.id === explicit)
     ?? providers.find((provider) => provider.id === stored.providers?.defaultProviderId)
     ?? providers[0];
 }
@@ -105,4 +139,55 @@ function requireStoredValue(value: string | undefined, fieldPath: string): strin
   }
 
   return trimmed;
+}
+
+function normalizeChannels(channels: StoredChannelConfig[] | undefined): StoredChannelConfig[] {
+  if (!channels || channels.length === 0) {
+    return [{ id: "http", type: "http" }];
+  }
+
+  return channels;
+}
+
+function resolveRuntimeAgents(stored: ReturnType<typeof loadConfigBundle>): RuntimeAgentConfig[] {
+  const agents = stored.agents?.agents ?? [];
+  if (agents.length === 0) {
+    const provider = requireProviderConfig(stored);
+    return [{
+      id: "primary",
+      model: toModelConfig(provider),
+      activeSkillIds: ["workspace_operator"],
+    }];
+  }
+
+  return agents.map((agent) => {
+    const provider = selectProviderConfigForAgent(stored, agent.id);
+    if (!provider) {
+      throw new Error(`Missing provider configuration for agent "${agent.id}".`);
+    }
+
+    return {
+      id: agent.id,
+      model: toModelConfig(provider),
+      activeSkillIds: agent.activeSkillIds?.length ? agent.activeSkillIds : ["workspace_operator"],
+    };
+  });
+}
+
+function toModelConfig(providerConfig: {
+  baseURL: string;
+  apiKey?: string;
+  model: string;
+  profile?: ProviderProfile;
+  temperature?: number;
+  maxTokens?: number;
+}): OpenAICompatibleConfig {
+  return {
+    baseURL: requireStoredValue(providerConfig.baseURL, "providers[].baseURL"),
+    apiKey: providerConfig.apiKey ?? "dummy",
+    model: requireStoredValue(providerConfig.model, "providers[].model"),
+    profile: providerConfig.profile,
+    temperature: providerConfig.temperature,
+    maxTokens: providerConfig.maxTokens,
+  };
 }
