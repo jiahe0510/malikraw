@@ -16,7 +16,7 @@ Minimal agent runtime with:
 ## Install
 
 ```bash
-cd /Users/jiahezhao/malikraw
+cd malikraw
 npm install
 npm run build
 npm link
@@ -49,7 +49,7 @@ This writes config files under `~/.malikraw/config/`, including:
 - `workspace.json`
 - `agents.json`
 
-During onboarding, available skills are discovered from the repository [`skills`](/Users/jiahezhao/malikraw/skills) directory. The selected skill directories are copied into the workspace under `~/.malikraw/workspace/skills/`.
+During onboarding, available skills are discovered from the repository `skills/` directory. The selected skill directories are copied into the workspace under `~/.malikraw/workspace/skills/`.
 
 ## Service Commands
 
@@ -112,6 +112,5 @@ npm test
 - Default workspace path is `~/.malikraw/workspace`
 - Default workspace prompt file is `~/.malikraw/workspace/AGENT.md`
 - Config files live under `~/.malikraw/config/`
-- Bundled skills live under [`skills`](/Users/jiahezhao/malikraw/skills)
-- System prompt templates live in [`templates/system`](/Users/jiahezhao/malikraw/templates/system)
-- Environment variables can still override saved config at runtime
+- Bundled skills live under `skills/`
+- System prompt templates live under `templates/system/`
