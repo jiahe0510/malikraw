@@ -10,6 +10,7 @@ import {
 } from "./cli/service-manager.js";
 import { startGatewayServer } from "./gateway/server.js";
 import { runOnboardWizard } from "./cli/onboard.js";
+import { runMemoryMigrations } from "./memory/migrate.js";
 import { runTui } from "./tui.js";
 
 async function main(): Promise<void> {
@@ -45,6 +46,17 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "migrate") {
+    const config = loadRuntimeConfig();
+    if (!config.memory?.postgresUrl) {
+      throw new Error("Memory Postgres is not configured. Run `malikraw onboard` and enable memory first.");
+    }
+
+    await runMemoryMigrations(config.memory.postgresUrl, config.memory.embeddingDimensions);
+    console.log("memory migrations applied");
+    return;
+  }
+
   if (command === "tui") {
     await runTui();
     return;
@@ -60,6 +72,7 @@ function printHelp(): void {
   console.log("  stop      stop the background gateway service");
   console.log("  restart   restart the background gateway service");
   console.log("  status    show background gateway service status");
+  console.log("  migrate   create/update memory tables in Postgres");
   console.log("  tui       start the local tui channel");
 }
 

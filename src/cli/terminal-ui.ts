@@ -79,7 +79,7 @@ export async function promptMultiSelect<T extends string>(
   defaultValues: readonly T[] = [],
 ): Promise<T[]> {
   if (!input.isTTY || !output.isTTY) {
-    return defaultValues.length > 0 ? [...defaultValues] : options.map((option) => option.value);
+    return [...defaultValues];
   }
 
   input.resume();

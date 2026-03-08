@@ -7,6 +7,7 @@ import {
   type StoredChannelConfig,
   type StoredChannelsConfig,
   type StoredFeishuChannelConfig,
+  type StoredMemoryConfig,
   type StoredProviderConfig,
   type StoredProvidersConfig,
   type StoredSystemConfig,
@@ -14,12 +15,11 @@ import {
   type StoredWorkspaceConfig,
   saveConfigBundle,
 } from "../core/config/config-store.js";
-import { startBackgroundService } from "./service-manager.js";
+import { getServiceStatus, restartBackgroundService, startBackgroundService } from "./service-manager.js";
 import { installBundledSkills, listBundledSkillIds } from "../runtime/bundled-skills.js";
 import { getWorkspaceRoot } from "../runtime/workspace-context.js";
 import { promptMultiSelect, promptSelectWithDefault, promptText } from "./terminal-ui.js";
 
-type AgentMode = "single" | "multi";
 type YesNo = "yes" | "no";
 
 export async function runOnboardWizard(): Promise<void> {
@@ -29,9 +29,6 @@ export async function runOnboardWizard(): Promise<void> {
   const existing = loadConfigBundle();
   const existingProvider = getExistingProvider(existing);
   const existingAgents = existing.agents?.agents ?? [];
-  const existingDefaultAgent = existing.agents?.defaultAgentId
-    ? existingAgents.find((agent) => agent.id === existing.agents?.defaultAgentId) ?? existingAgents[0]
-    : existingAgents[0];
   const defaultProfile = existingProvider?.profile ?? "openai";
 
   const profile = await promptSelectWithDefault("Choose a provider profile", [
@@ -47,41 +44,19 @@ export async function runOnboardWizard(): Promise<void> {
   );
   const apiKey = await promptText("Provider API key", existingProvider?.apiKey || "dummy");
   const model = await promptText("Model name", existingProvider?.model || defaultModelForProfile(profile));
-  const temperature = await promptOptionalNumber(
-    "Temperature",
-    existingProvider?.temperature !== undefined ? String(existingProvider.temperature) : "0.2",
-  );
-  const maxTokens = await promptOptionalNumber(
-    "Max tokens",
-    existingProvider?.maxTokens !== undefined ? String(existingProvider.maxTokens) : "",
-  );
 
   const gatewayPort = await promptRequiredNumber(
     "Gateway port",
     String(existing.system?.gatewayPort ?? 5050),
   );
-  const workspaceRoot = await promptText(
-    "Workspace path",
-    existing.workspace?.workspaceRoot || getWorkspaceRoot(),
-  );
-  const maxIterations = await promptRequiredNumber(
-    "Max iterations",
-    String(existing.system?.maxIterations ?? 8),
-  );
-  const debugModelMessages = await promptSelectWithDefault("Enable model message debug logging?", [
-    { label: "No", value: "no" },
-    { label: "Yes", value: "yes" },
-  ], existing.system?.debugModelMessages ? "yes" : "no");
-  const agentMode = await promptSelectWithDefault("Agent mode", [
-    { label: "Single agent", value: "single" },
-    { label: "Multi agent", value: "multi" },
-  ], existingAgents.length > 1 ? "multi" : "single");
+  const workspaceRoot = getWorkspaceRoot();
 
   const availableSkillIds = await listBundledSkillIds();
-  const agents = await collectAgents(agentMode, providerId, availableSkillIds, existingAgents);
-  const defaultAgentId = agents[0]?.id ?? "primary";
+  const agents = await collectAgents(providerId, availableSkillIds, existingAgents);
+  const defaultAgentId = agents[0]?.id ?? "main";
   const channels = await collectChannels(existing.channels?.channels ?? [], defaultAgentId, agents.map((agent) => agent.id));
   const tools = await collectToolsConfig(existing.tools);
+  const memory = await collectMemoryConfig(existing.memory, model);
   const startNow = await promptSelectWithDefault("Start service now?", [
     { label: "Yes", value: "yes" },
     { label: "No", value: "no" },
@@ -89,8 +64,7 @@ export async function runOnboardWizard(): Promise<void> {
 
   const system: StoredSystemConfig = {
     gatewayPort,
-    maxIterations,
-    debugModelMessages: debugModelMessages === "yes",
+    debugModelMessages: false,
     globalPolicy: "Operate as a careful agent runtime. Prefer using tools over guessing. Be explicit about uncertainty.",
   };
   const providers: StoredProvidersConfig = {
@@ -101,8 +75,8 @@ export async function runOnboardWizard(): Promise<void> {
       apiKey,
       model,
       profile,
-      temperature,
-      maxTokens,
+      temperature: 0.2,
+      maxTokens: 4096,
     })],
   };
   const agentProviderMapping: StoredAgentProviderMappingConfig = {
@@ -113,7 +87,7 @@ export async function runOnboardWizard(): Promise<void> {
     workspaceRoot,
   };
   const storedChannels: StoredChannelsConfig = {
-    defaultChannelId: channels[0]?.id ?? "http",
+    defaultChannelId: channels[0]?.id ?? "",
     channels,
   };
   const storedAgents: StoredAgentsConfig = {
@@ -129,6 +103,7 @@ export async function runOnboardWizard(): Promise<void> {
     channels: storedChannels,
     tools,
     agents: storedAgents,
+    memory,
   });
 
   await installBundledSkills(
@@ -142,55 +117,30 @@ export async function runOnboardWizard(): Promise<void> {
 
   if (startNow === "yes") {
     loadRuntimeConfig();
-    const status = startBackgroundService();
-    console.log("Service started.");
+    const wasRunning = getServiceStatus().running;
+    const status = wasRunning
+      ? restartBackgroundService()
+      : startBackgroundService();
+    console.log(wasRunning ? "Service restarted." : "Service started.");
     console.log(`pid: ${status.running ? status.pid : "unknown"}`);
   }
 }
 
 async function collectAgents(
-  agentMode: AgentMode,
   providerId: string,
   availableSkillIds: string[],
   existingAgents: StoredAgentConfig[],
 ): Promise<StoredAgentConfig[]> {
-  if (agentMode === "single") {
-    const existingAgent = existingAgents[0];
-    const agentId = await promptText("Agent id", existingAgent?.id || "primary");
-    const activeSkills = await selectSkillsForAgent(
-      availableSkillIds,
-      existingAgent?.activeSkillIds ?? ["workspace_operator"],
-    );
-    return [{
-      id: agentId,
-      activeSkillIds: activeSkills,
-      providerId,
-    }];
-  }
-
-  const agentCount = await promptRequiredNumber(
-    "How many agents?",
-    String(existingAgents.length > 1 ? existingAgents.length : 2),
+  const existingAgent = existingAgents.find((agent) => agent.id === "main") ?? existingAgents[0];
+  const activeSkills = await selectSkillsForAgent(
+    availableSkillIds,
+    existingAgent?.activeSkillIds ?? [],
   );
-  const agents: StoredAgentConfig[] = [];
-  for (let index = 0; index < agentCount; index += 1) {
-    console.log("");
-    console.log(`Agent ${index + 1}`);
-    const existingAgent = existingAgents[index];
-    const fallbackId = index === 0 ? "planner" : index === 1 ? "executor" : `agent-${index + 1}`;
-    const agentId = await promptText("Agent id", existingAgent?.id || fallbackId);
-    const activeSkills = await selectSkillsForAgent(
-      availableSkillIds,
-      existingAgent?.activeSkillIds ?? ["workspace_operator"],
-    );
-    agents.push({
-      id: agentId,
-      activeSkillIds: activeSkills,
-      providerId,
-    });
-  }
-
-  return agents;
+  return [{
+    id: "main",
+    activeSkillIds: activeSkills,
+    providerId,
+  }];
 }
 
 async function collectChannels(
@@ -206,9 +156,9 @@ async function collectChannels(
   );
 
   const enableHttp = await promptSelectWithDefault("Enable HTTP channel?", [
-    { label: "Yes", value: "yes" },
     { label: "No", value: "no" },
-  ], existingHttp ? "yes" : "yes");
+    { label: "Yes", value: "yes" },
+  ], existingHttp ? "yes" : "no");
 
   const enableFeishu = await promptSelectWithDefault("Enable Feishu channel?", [
     { label: "No", value: "no" },
@@ -232,11 +182,7 @@ async function collectChannels(
     channels.push(await collectFeishuChannel(existingFeishu, defaultAgentId, agentIds));
   }
 
-  if (channels.length > 0) {
-    return channels;
-  }
-
-  return [{ id: "http", type: "http" }];
+  return channels;
 }
 
 async function collectFeishuChannel(
@@ -254,42 +200,102 @@ async function collectFeishuChannel(
     { label: "Plain text", value: "text" },
   ], existingChannel?.messageFormat ?? "interactive");
   const agentId = await promptSelectWithDefault("Feishu channel agent", agentIds.map((value) => ({
-    label: value,
-    value,
-  })), existingChannel?.agentId || defaultAgentId);
+      label: value,
+      value,
+    })), existingChannel?.agentId || defaultAgentId);
 
   return {
-    id: await promptText("Feishu channel id", existingChannel?.id || "feishu"),
+    id: await promptText("Feishu channel id", existingChannel?.id || "飞书"),
     type: "feishu",
     appId: await promptText("Feishu app id", existingChannel?.appId || ""),
     appSecret: await promptText("Feishu app secret", existingChannel?.appSecret || ""),
     agentId,
-    verificationToken: emptyToUndefined(
-      await promptText("Feishu verification token", existingChannel?.verificationToken || ""),
-    ),
-    encryptKey: emptyToUndefined(
-      await promptText("Feishu encrypt key", existingChannel?.encryptKey || ""),
-    ),
     replyMode,
     messageFormat,
   };
 }
 
 async function collectToolsConfig(existingTools: StoredToolsConfig | undefined): Promise<StoredToolsConfig> {
-  const configureBrave = await promptSelectWithDefault("Configure Brave web_search key?", [
-    { label: "No", value: "no" },
-    { label: "Yes", value: "yes" },
-  ], existingTools?.braveSearchApiKey ? "yes" : "no");
+  const selectedTools = await promptMultiSelect(
+    "Select tools",
+    [{
+      label: "web_search",
+      value: "web_search",
+    }],
+    existingTools?.braveSearchApiKey ? ["web_search"] : [],
+  );
 
-  if (configureBrave === "no") {
+  if (!selectedTools.includes("web_search")) {
     return {
-      braveSearchApiKey: existingTools?.braveSearchApiKey,
+      braveSearchApiKey: undefined,
     };
   }
 
   return {
     braveSearchApiKey: emptyToUndefined(
       await promptText("Brave Search API key", existingTools?.braveSearchApiKey || ""),
+    ),
+  };
+}
+
+async function collectMemoryConfig(
+  existingMemory: StoredMemoryConfig | undefined,
+  defaultEmbeddingModel: string,
+): Promise<StoredMemoryConfig> {
+  const enableMemory = await promptSelectWithDefault("Enable Enhanced memory?", [
+    { label: "Yes", value: "yes" },
+    { label: "No", value: "no" },
+  ], existingMemory?.enabled ? "yes" : "no");
+
+  if (enableMemory === "no") {
+    return {
+      enabled: false,
+      postgresUrl: existingMemory?.postgresUrl,
+      redisUrl: existingMemory?.redisUrl,
+      embeddingModel: existingMemory?.embeddingModel,
+      embeddingDimensions: existingMemory?.embeddingDimensions,
+      sessionRecentMessages: existingMemory?.sessionRecentMessages,
+      semanticTopK: existingMemory?.semanticTopK,
+      episodicTopK: existingMemory?.episodicTopK,
+      maxPromptChars: existingMemory?.maxPromptChars,
+      importanceThreshold: existingMemory?.importanceThreshold,
+    };
+  }
+
+  return {
+    enabled: true,
+    postgresUrl: emptyToUndefined(
+      await promptText("Enhanced memory Postgres URL", existingMemory?.postgresUrl || "postgres://localhost:5432/malikraw"),
+    ),
+    redisUrl: emptyToUndefined(
+      await promptText("Enhanced memory Redis URL", existingMemory?.redisUrl || "redis://127.0.0.1:6379"),
+    ),
+    embeddingModel: emptyToUndefined(
+      await promptText("Enhanced memory embedding model", existingMemory?.embeddingModel || defaultEmbeddingModel),
+    ),
+    embeddingDimensions: await promptRequiredNumber(
+      "Embedding dimensions",
+      String(existingMemory?.embeddingDimensions ?? 1536),
+    ),
+    sessionRecentMessages: await promptRequiredNumber(
+      "Session recent messages",
+      String(existingMemory?.sessionRecentMessages ?? 8),
+    ),
+    semanticTopK: await promptRequiredNumber(
+      "Semantic memory top-k",
+      String(existingMemory?.semanticTopK ?? 6),
+    ),
+    episodicTopK: await promptRequiredNumber(
+      "Episodic memory top-k",
+      String(existingMemory?.episodicTopK ?? 4),
+    ),
+    maxPromptChars: await promptRequiredNumber(
+      "Memory prompt char budget",
+      String(existingMemory?.maxPromptChars ?? 2000),
+    ),
+    importanceThreshold: await promptOptionalNumber(
+      "Enhanced memory importance threshold",
+      existingMemory?.importanceThreshold !== undefined ? String(existingMemory.importanceThreshold) : "0.65",
     ),
   };
 }
@@ -351,7 +357,7 @@ async function selectSkillsForAgent(
     return selected;
   }
 
-  return defaultSkillIds.filter((skillId) => availableSkillIds.includes(skillId));
+  return [];
 }
 
 function defaultBaseUrlForProfile(profile: StoredProviderConfig["profile"]): string {

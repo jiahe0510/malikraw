@@ -22,6 +22,7 @@ export type AgentPromptInput = {
   history?: AgentMessage[];
   stateSummary?: string;
   memorySummary?: string;
+  relevantMemoryBlock?: string;
 };
 
 export type BuiltPrompt = {
@@ -100,6 +101,7 @@ export type AgentLoopInput = {
   history?: AgentMessage[];
   stateSummary?: string;
   memorySummary?: string;
+  relevantMemoryBlock?: string;
   maxIterations?: number;
   debugModelMessages?: boolean;
   authorizeTool?: ToolAuthorizationPolicy;

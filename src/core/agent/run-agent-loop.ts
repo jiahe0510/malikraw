@@ -34,13 +34,18 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     history: input.history,
     stateSummary: input.stateSummary,
     memorySummary: input.memorySummary,
+    relevantMemoryBlock: input.relevantMemoryBlock,
   });
 
   const messages: AgentMessage[] = [...prompt.messages];
   const toolResults = [];
-  const maxIterations = input.maxIterations ?? 8;
+  const maxIterations = input.maxIterations;
 
-  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+  for (let iteration = 0; ; iteration += 1) {
+    if (maxIterations !== undefined && iteration >= maxIterations) {
+      throw new Error(`Agent loop exceeded maxIterations=${maxIterations}.`);
+    }
+
     const modelResponse = await input.model.generate({
       messages,
       tools: input.toolRegistry.toModelTools(visibleToolNames),
@@ -129,8 +134,6 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
       });
     }
   }
-
-  throw new Error(`Agent loop exceeded maxIterations=${maxIterations}.`);
 }
 
 async function authorizeTool(

@@ -24,6 +24,7 @@
     "stop": "node dist/cli.js stop",
     "restart": "node dist/cli.js restart",
     "status": "node dist/cli.js status",
+    "migrate": "node dist/cli.js migrate",
     "serve": "node dist/cli.js serve",
     "tui": "node dist/cli.js tui",
     "test": "npm run build && node --test $(find dist/test -type f -name '*.test.js')",
@@ -31,9 +32,12 @@
   },
   "devDependencies": {
     "@types/node": "^25.3.5",
+    "@types/pg": "^8.18.0",
     "typescript": "^5.8.2"
   },
   "dependencies": {
-    "@larksuiteoapi/node-sdk": "^1.59.0"
+    "@larksuiteoapi/node-sdk": "^1.59.0",
+    "pg": "^8.20.0",
+    "redis": "^5.11.0"
   }
 }

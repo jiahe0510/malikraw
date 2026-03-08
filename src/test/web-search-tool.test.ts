@@ -89,6 +89,9 @@ test("web_search calls Brave API and returns compact results", async () => {
     tools: {
       braveSearchApiKey: "test-key",
     },
+    memory: {
+      enabled: false,
+    },
     agents: {
       defaultAgentId: "primary",
       agents: [{ id: "primary", activeSkillIds: ["workspace_operator"] }],

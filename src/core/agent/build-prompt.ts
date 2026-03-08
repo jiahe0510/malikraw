@@ -65,6 +65,7 @@ function buildRuntimeContextBlock(input: AgentPromptInput): string {
     ...toToolLines(input.toolSummary),
     `- State summary: ${input.stateSummary ?? "No state summary provided."}`,
     `- Memory summary: ${input.memorySummary ?? "No memory summary provided."}`,
+    `- Retrieved memory: ${input.relevantMemoryBlock?.trim() ? "\n" + input.relevantMemoryBlock.trim() : "No retrieved memory provided."}`,
   ].join("\n");
 }
 

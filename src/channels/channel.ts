@@ -1,5 +1,7 @@
 export type ChannelSession = {
   agentId?: string;
+  userId?: string;
+  projectId?: string;
   channelId: string;
   sessionId: string;
   metadata?: Record<string, string>;

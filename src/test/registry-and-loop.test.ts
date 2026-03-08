@@ -64,6 +64,7 @@ read before edit`));
     toolSummary: "- read_file: read file\n- edit_file: edit file",
     stateSummary: "sev-2",
     memorySummary: "recent deploy",
+    relevantMemoryBlock: "[Relevant Memory]\nStable facts:\n- User prefers concise replies.",
   });
 
   assert.equal(prompt.activeSkillIds[0], "workspace_operator");
@@ -75,6 +76,7 @@ read before edit`));
   assert.match(content, /Agent Capabilities/);
   assert.match(content, /User prefers concise replies/);
   assert.match(content, /Runtime Context/);
+  assert.match(content, /\[Relevant Memory\]/);
   assert.match(content, /Active Skills/);
   assert.match(content, /edit_file|write_file/);
   assert.doesNotMatch(content, /<skill name=/);

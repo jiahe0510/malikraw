@@ -1,7 +1,8 @@
 import type { ProviderProfile } from "../providers/compatibility-profile.js";
-import type { StoredChannelConfig } from "./config-store.js";
+import type { StoredChannelConfig, StoredMemoryConfig } from "./config-store.js";
 import { loadConfigBundle } from "./config-store.js";
 import { getWorkspaceRoot } from "../../runtime/workspace-context.js";
+import type { MemoryConfig } from "../../memory/types.js";
 
 export type OpenAICompatibleConfig = {
   baseURL: string;
@@ -22,9 +23,10 @@ export type RuntimeConfig = {
   globalPolicy: string;
   stateSummary?: string;
   memorySummary?: string;
-  maxIterations: number;
+  maxIterations?: number;
   debugModelMessages: boolean;
   gatewayPort: number;
+  memory?: MemoryConfig;
 };
 
 export type RuntimeAgentConfig = {
@@ -38,7 +40,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
   const providerConfig = requireProviderConfig(stored);
   const agentConfig = selectAgentConfig(stored);
   const agents = resolveRuntimeAgents(stored);
-  const defaultAgentId = agentConfig?.id ?? agents[0]?.id ?? "primary";
+  const defaultAgentId = agentConfig?.id ?? agents[0]?.id ?? "main";
 
   return {
     model: {
@@ -46,13 +48,13 @@ export function loadRuntimeConfig(): RuntimeConfig {
       apiKey: providerConfig.apiKey ?? "dummy",
       model: requireStoredValue(providerConfig.model, "providers[].model"),
       profile: providerConfig.profile,
-      temperature: providerConfig.temperature,
-      maxTokens: providerConfig.maxTokens,
+      temperature: 0.2,
+      maxTokens: 4096,
     },
     workspaceRoot: stored.workspace?.workspaceRoot || getWorkspaceRoot(),
     activeSkillIds: agentConfig?.activeSkillIds?.length
       ? agentConfig.activeSkillIds
-      : ["workspace_operator"],
+      : [],
     channels: normalizeChannels(stored.channels?.channels),
     defaultAgentId,
     agents,
@@ -60,9 +62,10 @@ export function loadRuntimeConfig(): RuntimeConfig {
       ?? "Operate as a careful agent runtime. Prefer using tools over guessing. Be explicit about uncertainty.",
     stateSummary: stored.system?.stateSummary,
     memorySummary: stored.system?.memorySummary,
-    maxIterations: stored.system?.maxIterations ?? 8,
-    debugModelMessages: stored.system?.debugModelMessages ?? false,
+    maxIterations: undefined,
+    debugModelMessages: false,
     gatewayPort: stored.system?.gatewayPort ?? 5050,
+    memory: normalizeMemoryConfig(stored.memory),
   };
 }
 
@@ -143,7 +146,7 @@ function requireStoredValue(value: string | undefined, fieldPath: string): strin
 
 function normalizeChannels(channels: StoredChannelConfig[] | undefined): StoredChannelConfig[] {
   if (!channels || channels.length === 0) {
-    return [{ id: "http", type: "http" }];
+    return [];
   }
 
   return channels;
@@ -154,9 +157,9 @@ function resolveRuntimeAgents(stored: ReturnType<typeof loadConfigBundle>): Runt
   if (agents.length === 0) {
     const provider = requireProviderConfig(stored);
     return [{
-      id: "primary",
+      id: "main",
       model: toModelConfig(provider),
-      activeSkillIds: ["workspace_operator"],
+      activeSkillIds: [],
     }];
   }
 
@@ -169,7 +172,7 @@ function resolveRuntimeAgents(stored: ReturnType<typeof loadConfigBundle>): Runt
     return {
       id: agent.id,
       model: toModelConfig(provider),
-      activeSkillIds: agent.activeSkillIds?.length ? agent.activeSkillIds : ["workspace_operator"],
+      activeSkillIds: agent.activeSkillIds ?? [],
     };
   });
 }
@@ -187,7 +190,43 @@ function toModelConfig(providerConfig: {
     apiKey: providerConfig.apiKey ?? "dummy",
     model: requireStoredValue(providerConfig.model, "providers[].model"),
     profile: providerConfig.profile,
-    temperature: providerConfig.temperature,
-    maxTokens: providerConfig.maxTokens,
+    temperature: 0.2,
+    maxTokens: 4096,
+  };
+}
+
+function normalizeMemoryConfig(stored: StoredMemoryConfig | undefined): MemoryConfig | undefined {
+  if (!stored) {
+    return undefined;
+  }
+
+  if (stored.enabled) {
+    const postgresUrl = stored.postgresUrl?.trim();
+    const redisUrl = stored.redisUrl?.trim();
+    if (!postgresUrl) {
+      throw new Error(
+        "Enhanced memory is enabled but memory.postgresUrl is missing. "
+        + "Run `malikraw onboard` and set Enhanced memory Postgres URL.",
+      );
+    }
+    if (!redisUrl) {
+      throw new Error(
+        "Enhanced memory is enabled but memory.redisUrl is missing. "
+        + "Run `malikraw onboard` and set Enhanced memory Redis URL.",
+      );
+    }
+  }
+
+  return {
+    enabled: stored.enabled,
+    postgresUrl: stored.postgresUrl?.trim() || undefined,
+    redisUrl: stored.redisUrl?.trim() || undefined,
+    embeddingModel: stored.embeddingModel,
+    embeddingDimensions: stored.embeddingDimensions ?? 1536,
+    sessionRecentMessages: stored.sessionRecentMessages ?? 8,
+    semanticTopK: stored.semanticTopK ?? 6,
+    episodicTopK: stored.episodicTopK ?? 4,
+    maxPromptChars: stored.maxPromptChars ?? 2000,
+    importanceThreshold: stored.importanceThreshold ?? 0.65,
   };
 }

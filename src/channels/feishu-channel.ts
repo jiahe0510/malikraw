@@ -16,6 +16,11 @@ const FEISHU_DEDUP_MAX_SIZE = 2000;
 type FeishuReceiveMessageEvent = {
   sender: {
     sender_type: string;
+    sender_id?: {
+      open_id?: string;
+      union_id?: string;
+      user_id?: string;
+    };
   };
   message: {
     message_id: string;
@@ -279,6 +284,15 @@ export function toChannelInboundMessage(
       agentId: config.agentId,
       channelId: config.id,
       sessionId: data.message.thread_id || data.message.chat_id,
+      ...((data.sender.sender_id?.open_id
+        ?? data.sender.sender_id?.user_id
+        ?? data.sender.sender_id?.union_id)
+        ? {
+          userId: data.sender.sender_id?.open_id
+            ?? data.sender.sender_id?.user_id
+            ?? data.sender.sender_id?.union_id,
+        }
+        : {}),
       metadata: {
         [FEISHU_REPLY_MESSAGE_ID]: data.message.message_id,
         [FEISHU_CHAT_ID]: data.message.chat_id,

@@ -9,6 +9,8 @@ import {
 } from "../index.js";
 import type { RuntimeConfig } from "../core/config/agent-config.js";
 import type { AgentMessage } from "../core/agent/types.js";
+import { createMemoryService } from "../memory/memory-service.js";
+import { runMemoryMigrations } from "../memory/migrate.js";
 import { readBundledPersonalityFile } from "./system-template-context.js";
 import {
   ensureWorkspaceInitialized,
@@ -27,6 +29,11 @@ export type AgentRuntime = {
   ask(input: {
     userRequest: string;
     history?: AgentMessage[];
+    sessionId?: string;
+    userId?: string;
+    agentId?: string;
+    channelId?: string;
+    projectId?: string;
   }): Promise<{
     output: string;
     visibleToolNames: string[];
@@ -38,6 +45,9 @@ export type AgentRuntime = {
 export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRuntime> {
   setWorkspaceRoot(config.workspaceRoot);
   await ensureWorkspaceInitialized();
+  if (config.memory?.enabled && config.memory.postgresUrl) {
+    await runMemoryMigrations(config.memory.postgresUrl, config.memory.embeddingDimensions);
+  }
 
   const toolRegistry = registerBuiltinTools(new ToolRegistry());
   const skillRegistry = new SkillRegistry();
@@ -47,15 +57,30 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
   }
 
   const model = new OpenAICompatibleModel(config.model);
+  const memoryService = createMemoryService(config.memory, config.model);
 
   return {
     workspaceRoot: getWorkspaceRoot(),
-    ask: async ({ userRequest, history }) => {
+    ask: async ({ userRequest, history, sessionId, userId, agentId, channelId, projectId }) => {
       const identitySystemContent = await readWorkspaceIdentityFile();
       const personalitySystemContent = await readWorkspacePersonalityFile()
         ?? await readBundledPersonalityFile();
       const agentSystemContent = await readWorkspaceAgentFile();
       const memorySystemContent = await readWorkspaceMemoryFile();
+      const resolvedAgentId = agentId ?? "default";
+      const resolvedUserId = userId ?? sessionId ?? "anonymous";
+      const resolvedSessionId = sessionId ?? "default";
+      const resolvedProjectId = projectId ?? getWorkspaceRoot();
+      const retrievedMemory = await memoryService.retrieve({
+        context: {
+          sessionId: resolvedSessionId,
+          userId: resolvedUserId,
+          agentId: resolvedAgentId,
+          channelId,
+          projectId: resolvedProjectId,
+        },
+        query: userRequest,
+      });
       const result = await runAgentLoop({
         model,
         toolRegistry,
@@ -70,8 +95,25 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         history,
         stateSummary: config.stateSummary,
         memorySummary: config.memorySummary,
+        relevantMemoryBlock: retrievedMemory.compiledBlock,
         maxIterations: config.maxIterations,
         debugModelMessages: config.debugModelMessages,
+      });
+
+      await memoryService.write({
+        context: {
+          sessionId: resolvedSessionId,
+          userId: resolvedUserId,
+          agentId: resolvedAgentId,
+          channelId,
+          projectId: resolvedProjectId,
+        },
+        userMessage: userRequest,
+        assistantResponse: result.finalOutput,
+        toolResults: result.toolResults,
+        sessionMessages: result.messages.filter((message) =>
+          message.role === "user" || message.role === "assistant"
+        ),
       });
 
       return {

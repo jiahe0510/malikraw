@@ -58,6 +58,8 @@ export async function startGatewayServer(config: RuntimeConfig): Promise<void> {
         const channelId = typeof body.channelId === "string" ? body.channelId.trim() : "http";
         const agentId = typeof body.agentId === "string" ? body.agentId.trim() : resolveChannelAgent(config, channelId);
         const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "default";
+        const userId = typeof body.userId === "string" ? body.userId.trim() : undefined;
+        const projectId = typeof body.projectId === "string" ? body.projectId.trim() : undefined;
         if (!message) {
           return sendJson(response, 400, { error: 'Field "message" is required.' });
         }
@@ -65,6 +67,8 @@ export async function startGatewayServer(config: RuntimeConfig): Promise<void> {
         const result = await gateway.handleMessage({
           session: {
             agentId,
+            userId,
+            projectId,
             channelId,
             sessionId,
           },
@@ -75,6 +79,8 @@ export async function startGatewayServer(config: RuntimeConfig): Promise<void> {
           output: result.output,
           visibleToolNames: result.visibleToolNames,
           agentId,
+          userId,
+          projectId,
           channelId,
           sessionId,
         });

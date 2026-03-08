@@ -9,8 +9,21 @@ export type StoredSystemConfig = {
   globalPolicy?: string;
   stateSummary?: string;
   memorySummary?: string;
-  maxIterations: number;
-  debugModelMessages: boolean;
+  maxIterations?: number;
+  debugModelMessages?: boolean;
+};
+
+export type StoredMemoryConfig = {
+  enabled: boolean;
+  postgresUrl?: string;
+  redisUrl?: string;
+  embeddingModel?: string;
+  embeddingDimensions?: number;
+  sessionRecentMessages?: number;
+  semanticTopK?: number;
+  episodicTopK?: number;
+  maxPromptChars?: number;
+  importanceThreshold?: number;
 };
 
 export type StoredProviderConfig = {
@@ -86,6 +99,7 @@ export type MalikrawConfigBundle = {
   channels?: StoredChannelsConfig;
   tools?: StoredToolsConfig;
   agents?: StoredAgentsConfig;
+  memory?: StoredMemoryConfig;
 };
 
 export function getMalikrawHomeDirectory(): string {
@@ -111,6 +125,7 @@ export function loadConfigBundle(): MalikrawConfigBundle {
     channels: readJsonFile<StoredChannelsConfig>("channels.json"),
     tools: readJsonFile<StoredToolsConfig>("tools.json"),
     agents: readJsonFile<StoredAgentsConfig>("agents.json"),
+    memory: readJsonFile<StoredMemoryConfig>("memory.json"),
   };
 }
 
@@ -123,6 +138,7 @@ export function saveConfigBundle(bundle: Required<MalikrawConfigBundle>): void {
   writeJsonFile("channels.json", bundle.channels);
   writeJsonFile("tools.json", bundle.tools);
   writeJsonFile("agents.json", bundle.agents);
+  writeJsonFile("memory.json", bundle.memory);
 }
 
 function getConfigFilePath(fileName: string): string {

@@ -45,6 +45,11 @@ export class Gateway {
     const result = await runtime.ask({
       userRequest: message.content,
       history,
+      sessionId: message.session.sessionId,
+      userId: message.session.userId ?? message.session.metadata?.userId,
+      agentId: message.session.agentId,
+      channelId: message.session.channelId,
+      projectId: message.session.projectId ?? message.session.metadata?.projectId,
     });
 
     const sessionMessages = filterSessionMessages(result.messages);

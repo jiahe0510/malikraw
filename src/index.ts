@@ -11,3 +11,4 @@ export * from "./gateway/index.js";
 export * from "./runtime/create-agent-runtime.js";
 export * from "./runtime/workspace-context.js";
 export * from "./tools/index.js";
+export * from "./memory/index.js";
