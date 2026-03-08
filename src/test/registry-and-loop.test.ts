@@ -58,6 +58,7 @@ read before edit`));
     identitySystemContent: "# Identity\n\nYou are Malikraw.",
     personalitySystemContent: "# Personality\n\nBe direct.",
     agentSystemContent: "# Agent Capabilities\n\nCan inspect workspace files.",
+    memorySystemContent: "# Memory\n\nUser prefers concise replies.",
     userRequest: "update a file",
     activeSkills: selected.skills,
     toolSummary: "- read_file: read file\n- edit_file: edit file",
@@ -72,8 +73,10 @@ read before edit`));
   assert.match(content, /Identity/);
   assert.match(content, /Personality/);
   assert.match(content, /Agent Capabilities/);
+  assert.match(content, /User prefers concise replies/);
   assert.match(content, /Runtime Context/);
   assert.match(content, /Active Skills/);
+  assert.match(content, /edit_file|write_file/);
   assert.doesNotMatch(content, /<skill name=/);
 
   assert.equal(prompt.messages[0]?.role, "system");
@@ -84,6 +87,34 @@ read before edit`));
   assert.match(prompt.messages[2]?.content ?? "", /Personality/);
   assert.equal(prompt.messages[3]?.role, "system");
   assert.match(prompt.messages[3]?.content ?? "", /Workspace AGENT\.md/);
+});
+
+test("buildPrompt rewrites legacy assistant session summary into a synthetic user history message", () => {
+  const prompt = buildPrompt({
+    globalPolicy: "global policy",
+    userRequest: "current question",
+    activeSkills: [],
+    toolSummary: "No tools are currently available.",
+    history: [
+      {
+        role: "assistant",
+        content: "[session_summary]\nuser: old question\nassistant: old answer",
+      },
+      {
+        role: "user",
+        content: "follow up",
+      },
+      {
+        role: "assistant",
+        content: "answer",
+      },
+    ],
+  });
+
+  const joined = prompt.messages.map((message) => `${message.role}:${message.content}`).join("\n");
+  assert.match(joined, /user:\[compacted_history\]/);
+  assert.doesNotMatch(joined, /assistant:\[session_summary\]/);
+  assert.match(joined, /user:follow up/);
 });
 
 test("getVisibleToolNames keeps all tools visible even when skills declare allowedTools", () => {

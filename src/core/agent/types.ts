@@ -15,6 +15,7 @@ export type AgentPromptInput = {
   identitySystemContent?: string;
   personalitySystemContent?: string;
   agentSystemContent?: string;
+  memorySystemContent?: string;
   userRequest: string;
   activeSkills: SelectedSkill[];
   toolSummary: string;
@@ -94,6 +95,7 @@ export type AgentLoopInput = {
   identitySystemContent?: string;
   personalitySystemContent?: string;
   agentSystemContent?: string;
+  memorySystemContent?: string;
   userRequest: string;
   history?: AgentMessage[];
   stateSummary?: string;

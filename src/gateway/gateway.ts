@@ -7,6 +7,7 @@ export type GatewayHandleMessageResult = {
   output: string;
   visibleToolNames: string[];
   sessionMessages: AgentMessage[];
+  attachmentPaths: string[];
 };
 
 export class Gateway {
@@ -53,6 +54,7 @@ export class Gateway {
       session: message.session,
       content: result.output,
       visibleToolNames: result.visibleToolNames,
+      attachmentPaths: result.attachmentPaths,
     };
     await channel.sendMessage(delivery);
 
@@ -68,6 +70,7 @@ export class Gateway {
       output: result.output,
       visibleToolNames: result.visibleToolNames,
       sessionMessages,
+      attachmentPaths: result.attachmentPaths,
     };
   }
 

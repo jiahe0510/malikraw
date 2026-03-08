@@ -6,5 +6,5 @@ export type {
   GatewayChannel,
 } from "./channel.js";
 export { Gateway } from "./gateway.js";
-export { InMemorySessionStore } from "./session-store.js";
+export { FileBackedSessionStore, InMemorySessionStore, getDefaultSessionStoreDirectory } from "./session-store.js";
 export { startGatewayServer } from "./server.js";

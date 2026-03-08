@@ -9,9 +9,11 @@ import {
   ensureWorkspaceInitialized,
   getWorkspaceAgentFilePath,
   getWorkspaceIdentityFilePath,
+  getWorkspaceMemoryFilePath,
   getWorkspacePersonalityFilePath,
   readWorkspaceAgentFile,
   readWorkspaceIdentityFile,
+  readWorkspaceMemoryFile,
   readWorkspacePersonalityFile,
   setWorkspaceRoot,
 } from "../index.js";
@@ -65,6 +67,25 @@ test("workspace initialization seeds IDENTITY.md", async () => {
     const content = await readWorkspaceIdentityFile();
     assert.match(content ?? "", /Malikraw Identity/);
     assert.match(content ?? "", /## Who You Are/);
+  } finally {
+    clearWorkspaceRoot();
+  }
+});
+
+test("workspace initialization seeds MEMORY.md", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "malikraw-workspace-"));
+  setWorkspaceRoot(workspace);
+
+  try {
+    await ensureWorkspaceInitialized();
+
+    const fileInfo = await stat(getWorkspaceMemoryFilePath());
+    assert.equal(fileInfo.isFile(), true);
+
+    const content = await readWorkspaceMemoryFile();
+    assert.match(content ?? "", /# MEMORY\.md/);
+    assert.match(content ?? "", /durable user-specific memory/);
+    assert.match(content ?? "", /workspace file tools/);
   } finally {
     clearWorkspaceRoot();
   }

@@ -2,7 +2,11 @@ import { injectSkillPromptBlocks } from "../skill-registry/render-skill-prompt.j
 import type { PromptMessage, SelectedSkill } from "../skill-registry/types.js";
 import type { AgentMessage, AgentPromptInput, BuiltPrompt } from "./types.js";
 
+const LEGACY_SESSION_SUMMARY_PREFIX = "[session_summary]\n";
+const COMPACTED_HISTORY_PREFIX = "[compacted_history]\n";
+
 export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
+  const history = normalizeCompactedHistory(input.history ?? []);
   const baseMessages: PromptMessage[] = [
     {
       role: "system",
@@ -11,6 +15,7 @@ export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
     ...toSystemMessages("Identity", input.identitySystemContent),
     ...toSystemMessages("Personality", input.personalitySystemContent),
     ...toSystemMessages("Workspace AGENT.md", input.agentSystemContent),
+    ...toSystemMessages("Workspace MEMORY.md", input.memorySystemContent),
     {
       role: "developer",
       content: buildRuntimeContextBlock(input),
@@ -18,7 +23,6 @@ export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
   ];
 
   const promptMessages = injectSkillPromptBlocks(baseMessages, input.activeSkills);
-  const history = input.history ?? [];
 
   const messages: AgentMessage[] = [
     ...promptMessages,
@@ -75,4 +79,17 @@ function toToolLines(toolSummary: string): string[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => line.startsWith("- ") ? `  ${line}` : `  - ${line}`);
+}
+
+function normalizeCompactedHistory(history: AgentMessage[]): AgentMessage[] {
+  return history.map((message) => {
+    if (message.role === "assistant" && message.content.startsWith(LEGACY_SESSION_SUMMARY_PREFIX)) {
+      return {
+        role: "user" as const,
+        content: `${COMPACTED_HISTORY_PREFIX}${message.content.slice(LEGACY_SESSION_SUMMARY_PREFIX.length).trim()}`,
+      };
+    }
+
+    return message;
+  });
 }

@@ -249,6 +249,10 @@ async function collectFeishuChannel(
     { label: "Reply to message", value: "reply" },
     { label: "Reply in thread", value: "thread" },
   ], existingChannel?.replyMode ?? (existingChannel?.autoReplyInThread ? "thread" : "chat"));
+  const messageFormat = await promptSelectWithDefault("Feishu message format", [
+    { label: "Markdown card", value: "interactive" },
+    { label: "Plain text", value: "text" },
+  ], existingChannel?.messageFormat ?? "interactive");
   const agentId = await promptSelectWithDefault("Feishu channel agent", agentIds.map((value) => ({
     label: value,
     value,
@@ -267,6 +271,7 @@ async function collectFeishuChannel(
       await promptText("Feishu encrypt key", existingChannel?.encryptKey || ""),
     ),
     replyMode,
+    messageFormat,
   };
 }
 

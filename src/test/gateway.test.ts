@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { Gateway, type AgentMessage, type AgentRuntime, type ChannelDelivery, type GatewayChannel } from "../index.js";
+import { FileBackedSessionStore, compactSessionMessages } from "../gateway/session-store.js";
 
 test("gateway routes messages through channel and persists session history", async () => {
   const deliveries: ChannelDelivery[] = [];
@@ -21,6 +25,7 @@ test("gateway routes messages through channel and persists session history", asy
         output: `reply:${userRequest}`,
         visibleToolNames: ["read_file"],
         messages,
+        attachmentPaths: [],
       };
     },
   };
@@ -78,6 +83,7 @@ test("gateway isolates sessions by channel and session id", async () => {
           { role: "user", content: userRequest },
           { role: "assistant", content: userRequest },
         ],
+        attachmentPaths: [],
       };
     },
   };
@@ -123,6 +129,7 @@ test("gateway isolates sessions by agent id", async () => {
           { role: "user", content: userRequest },
           { role: "assistant", content: userRequest },
         ],
+        attachmentPaths: [],
       };
     },
   };
@@ -150,5 +157,146 @@ test("gateway isolates sessions by agent id", async () => {
     [],
     [],
     ["a", "a"],
+  ]);
+});
+
+test("gateway passes structured attachment paths through to channels", async () => {
+  const deliveries: ChannelDelivery[] = [];
+
+  const runtime: AgentRuntime = {
+    workspaceRoot: "/tmp/workspace",
+    ask: async ({ userRequest, history }) => ({
+      output: `reply:${userRequest}`,
+      visibleToolNames: [],
+      messages: [
+        ...(history ?? []),
+        { role: "user", content: userRequest },
+        { role: "assistant", content: `reply:${userRequest}` },
+      ],
+      attachmentPaths: ["artifacts/report.pdf", "artifacts/chart.png"],
+    }),
+  };
+
+  const gateway = new Gateway(runtime);
+  gateway.registerChannel({
+    id: "feishu",
+    sendMessage: (delivery) => {
+      deliveries.push(delivery);
+    },
+  });
+
+  await gateway.handleMessage({
+    session: { channelId: "feishu", sessionId: "session-1" },
+    content: "send report",
+  });
+
+  assert.deepEqual(deliveries[0]?.attachmentPaths, ["artifacts/report.pdf", "artifacts/chart.png"]);
+});
+
+test("compactSessionMessages keeps a summary plus recent messages", () => {
+  const messages: AgentMessage[] = [
+    { role: "user", content: "u1" },
+    { role: "assistant", content: "a1" },
+    { role: "user", content: "u2" },
+    { role: "assistant", content: "a2" },
+    { role: "user", content: "u3" },
+    { role: "assistant", content: "a3" },
+  ];
+
+  const compacted = compactSessionMessages(messages, {
+    maxRecentMessages: 4,
+    maxSummaryChars: 200,
+  });
+
+  assert.equal(compacted.length, 5);
+  assert.equal(compacted[0]?.role, "user");
+  assert.match(compacted[0]?.content ?? "", /^\[compacted_history\]/);
+  assert.deepEqual(
+    compacted.slice(1).map((message) => message.content),
+    ["u2", "a2", "u3", "a3"],
+  );
+});
+
+test("compactSessionMessages keeps recent history aligned to a user message boundary", () => {
+  const messages: AgentMessage[] = [
+    { role: "user", content: "u1" },
+    { role: "assistant", content: "a1" },
+    { role: "tool", toolName: "read_file", content: "{\"ok\":true}" },
+    { role: "user", content: "u2" },
+    { role: "assistant", content: "a2" },
+    { role: "tool", toolName: "read_file", content: "{\"ok\":true}" },
+    { role: "user", content: "u3" },
+    { role: "assistant", content: "a3" },
+  ];
+
+  const compacted = compactSessionMessages(messages, {
+    maxRecentMessages: 4,
+    maxSummaryChars: 200,
+  });
+
+  assert.equal(compacted[1]?.role, "user");
+  assert.deepEqual(
+    compacted.slice(1).map((message) => `${message.role}:${message.content}`),
+    ["user:u3", "assistant:a3"],
+  );
+});
+
+test("compactSessionMessages removes tool messages from recent history but preserves them in the summary", () => {
+  const messages: AgentMessage[] = [
+    { role: "user", content: "u1" },
+    { role: "assistant", content: "a1" },
+    { role: "tool", toolName: "read_file", content: "{\"path\":\"README.md\"}" },
+    { role: "user", content: "u2" },
+    { role: "assistant", content: "a2" },
+  ];
+
+  const compacted = compactSessionMessages(messages, {
+    maxRecentMessages: 2,
+    maxSummaryChars: 200,
+  });
+
+  assert.equal(compacted[0]?.role, "user");
+  assert.match(compacted[0]?.content ?? "", /tool read_file/);
+  assert.deepEqual(
+    compacted.slice(1).map((message) => `${message.role}:${message.content}`),
+    ["user:u2", "assistant:a2"],
+  );
+});
+
+test("compactSessionMessages compacts when total history chars exceed threshold even with few messages", () => {
+  const longText = "x".repeat(5000);
+  const compacted = compactSessionMessages([
+    { role: "user", content: longText },
+    { role: "assistant", content: "ok" },
+  ], {
+    maxRecentMessages: 8,
+    maxSummaryChars: 200,
+    maxHistoryChars: 1000,
+  });
+
+  assert.equal(compacted[0]?.role, "user");
+  assert.match(compacted[0]?.content ?? "", /^\[compacted_history\]/);
+});
+
+test("FileBackedSessionStore preserves session history across store instances", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "malikraw-sessions-"));
+  const session = {
+    agentId: "primary",
+    channelId: "feishu",
+    sessionId: "thread-1",
+  };
+
+  const firstStore = new FileBackedSessionStore({ directory });
+  await firstStore.write(session, [
+    { role: "user", content: "hello" },
+    { role: "assistant", content: "world" },
+  ]);
+
+  const secondStore = new FileBackedSessionStore({ directory });
+  const history = await secondStore.read(session);
+
+  assert.deepEqual(history, [
+    { role: "user", content: "hello" },
+    { role: "assistant", content: "world" },
   ]);
 });

@@ -6,6 +6,7 @@ import type { RuntimeConfig } from "../core/config/agent-config.js";
 import { createAgentRuntime } from "../runtime/create-agent-runtime.js";
 import { createConfiguredChannels } from "../channels/index.js";
 import { Gateway } from "./gateway.js";
+import { FileBackedSessionStore } from "./session-store.js";
 
 async function main(): Promise<void> {
   const config = loadRuntimeConfig();
@@ -15,7 +16,10 @@ async function main(): Promise<void> {
 export async function startGatewayServer(config: RuntimeConfig): Promise<void> {
   const runtimes = await createAgentRuntimeMap(config);
   const defaultRuntime = requireRuntime(config.defaultAgentId, runtimes);
-  const gateway = new Gateway((agentId) => requireRuntime(agentId ?? config.defaultAgentId, runtimes));
+  const gateway = new Gateway(
+    (agentId) => requireRuntime(agentId ?? config.defaultAgentId, runtimes),
+    new FileBackedSessionStore(),
+  );
   const channels = createConfiguredChannels(config);
   for (const channel of channels) {
     gateway.registerChannel(channel);

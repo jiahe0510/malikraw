@@ -27,6 +27,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     identitySystemContent: input.identitySystemContent,
     personalitySystemContent: input.personalitySystemContent,
     agentSystemContent: input.agentSystemContent,
+    memorySystemContent: input.memorySystemContent,
     userRequest: input.userRequest,
     activeSkills: selected.skills,
     toolSummary: input.toolRegistry.describeTools(visibleToolNames),

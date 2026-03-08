@@ -25,3 +25,7 @@ export async function readDefaultPersonalityTemplateFile(): Promise<string | und
 export async function readDefaultIdentityTemplateFile(): Promise<string | undefined> {
   return readSystemTemplateFile("IDENTITY.md");
 }
+
+export async function readDefaultMemoryTemplateFile(): Promise<string | undefined> {
+  return readSystemTemplateFile("MEMORY.md");
+}

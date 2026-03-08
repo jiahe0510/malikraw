@@ -52,6 +52,7 @@ export type StoredFeishuChannelConfig = {
   verificationToken?: string;
   encryptKey?: string;
   replyMode?: "chat" | "reply" | "thread";
+  messageFormat?: "text" | "interactive";
   autoReplyInThread?: boolean;
 };
 

@@ -1,7 +1,11 @@
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
+
 import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type { StoredFeishuChannelConfig } from "../core/config/config-store.js";
 import type { ChannelDelivery, ChannelInboundMessage, ChannelStartContext, GatewayChannel } from "./channel.js";
+import { getWorkspaceRoot, resolveWorkspacePath } from "../tools/_workspace.js";
 
 const FEISHU_REPLY_MESSAGE_ID = "feishuReplyMessageId";
 const FEISHU_CHAT_ID = "feishuChatId";
@@ -73,22 +77,53 @@ export class FeishuChannel implements GatewayChannel {
   async sendMessage(delivery: ChannelDelivery): Promise<void> {
     const replyMessageId = delivery.session.metadata?.[FEISHU_REPLY_MESSAGE_ID];
     const chatId = delivery.session.metadata?.[FEISHU_CHAT_ID];
-    const content = JSON.stringify({
-      text: delivery.content,
-    });
     const replyMode = resolveReplyMode(this.config);
+    const parsed = await parseFeishuDeliveryContent(delivery.content);
+    const attachmentPaths = deduplicateAttachmentPaths([
+      ...parsed.attachmentPaths,
+      ...(delivery.attachmentPaths ?? []),
+    ]);
 
+    if (parsed.text) {
+      await this.sendFeishuPayload({
+        session: delivery.session,
+        replyMode,
+        replyMessageId,
+        chatId,
+        payload: buildFeishuOutboundPayload(this.config, parsed.text),
+      });
+    }
+
+    for (const attachmentPath of attachmentPaths) {
+      await this.sendAttachment({
+        session: delivery.session,
+        replyMode,
+        replyMessageId,
+        chatId,
+        attachmentPath,
+      });
+    }
+  }
+
+  private async sendFeishuPayload(input: {
+    session: ChannelDelivery["session"];
+    replyMode: "chat" | "reply" | "thread";
+    replyMessageId?: string;
+    chatId?: string;
+    payload: ReturnType<typeof buildFeishuOutboundPayload>;
+  }): Promise<void> {
+    const { session, replyMode, replyMessageId, chatId, payload } = input;
     if ((replyMode === "reply" || replyMode === "thread") && replyMessageId) {
       console.log(
-        `[channel:feishu] replying id=${this.id} mode=${replyMode} agent=${delivery.session.agentId ?? "default"} session=${delivery.session.sessionId} replyMessageId=${replyMessageId}`,
+        `[channel:feishu] replying id=${this.id} mode=${replyMode} format=${payload.msgType} agent=${session.agentId ?? "default"} session=${session.sessionId} replyMessageId=${replyMessageId}`,
       );
-      await this.client.im.v1.message.reply({
+      await this.client.im.message.reply({
         path: {
           message_id: replyMessageId,
         },
         data: {
-          content,
-          msg_type: "text",
+          content: payload.content,
+          msg_type: payload.msgType,
           reply_in_thread: replyMode === "thread",
         },
       });
@@ -100,16 +135,68 @@ export class FeishuChannel implements GatewayChannel {
     }
 
     console.log(
-      `[channel:feishu] sending id=${this.id} mode=chat agent=${delivery.session.agentId ?? "default"} session=${delivery.session.sessionId} chatId=${chatId}`,
+      `[channel:feishu] sending id=${this.id} mode=chat format=${payload.msgType} agent=${session.agentId ?? "default"} session=${session.sessionId} chatId=${chatId}`,
     );
-    await this.client.im.v1.message.create({
+    await this.client.im.message.create({
       params: {
         receive_id_type: "chat_id",
       },
       data: {
         receive_id: chatId,
-        content,
-        msg_type: "text",
+        content: payload.content,
+        msg_type: payload.msgType,
+      },
+    });
+  }
+
+  private async sendAttachment(input: {
+    session: ChannelDelivery["session"];
+    replyMode: "chat" | "reply" | "thread";
+    replyMessageId?: string;
+    chatId?: string;
+    attachmentPath: string;
+  }): Promise<void> {
+    const attachment = classifyFeishuAttachment(input.attachmentPath);
+    console.log(
+      `[channel:feishu] attachment id=${this.id} agent=${input.session.agentId ?? "default"} session=${input.session.sessionId} path=${input.attachmentPath} kind=${attachment.kind}`,
+    );
+    if (attachment.kind === "image") {
+      const uploaded = await this.client.im.image.create({
+        data: {
+          image_type: "message",
+          image: await readFile(input.attachmentPath),
+        },
+      });
+      if (!uploaded?.image_key) {
+        throw new Error(`Failed to upload image attachment: ${input.attachmentPath}`);
+      }
+
+      await this.sendFeishuPayload({
+        ...input,
+        payload: {
+          msgType: "image",
+          content: JSON.stringify({ image_key: uploaded.image_key }),
+        },
+      });
+      return;
+    }
+
+    const uploaded = await this.client.im.file.create({
+      data: {
+        file_type: attachment.fileType,
+        file_name: path.basename(input.attachmentPath),
+        file: await readFile(input.attachmentPath),
+      },
+    });
+    if (!uploaded?.file_key) {
+      throw new Error(`Failed to upload file attachment: ${input.attachmentPath}`);
+    }
+
+    await this.sendFeishuPayload({
+      ...input,
+      payload: {
+        msgType: "file",
+        content: JSON.stringify({ file_key: uploaded.file_key }),
       },
     });
   }
@@ -156,13 +243,14 @@ export class FeishuChannel implements GatewayChannel {
   }
 
   private async replyToEvent(data: FeishuReceiveMessageEvent, content: string): Promise<void> {
-    await this.client.im.v1.message.reply({
+    const payload = buildFeishuOutboundPayload(this.config, content);
+    await this.client.im.message.reply({
       path: {
         message_id: data.message.message_id,
       },
       data: {
-        content: JSON.stringify({ text: content }),
-        msg_type: "text",
+        content: payload.content,
+        msg_type: payload.msgType,
         reply_in_thread: resolveReplyMode(this.config) === "thread",
       },
     });
@@ -228,6 +316,216 @@ function resolveReplyMode(config: StoredFeishuChannelConfig): "chat" | "reply" |
   }
 
   return "chat";
+}
+
+export function buildFeishuOutboundPayload(
+  config: Pick<StoredFeishuChannelConfig, "messageFormat">,
+  content: string,
+): {
+  msgType: "text" | "interactive" | "image" | "file";
+  content: string;
+} {
+  if (config.messageFormat === "text") {
+    return {
+      msgType: "text",
+      content: JSON.stringify({ text: content }),
+    };
+  }
+
+  return {
+    msgType: "interactive",
+    content: JSON.stringify({
+      config: {
+        wide_screen_mode: true,
+      },
+      elements: [{
+        tag: "markdown",
+        content: normalizeFeishuMarkdown(content),
+      }],
+    }),
+  };
+}
+
+export async function parseFeishuDeliveryContent(content: string): Promise<{
+  text: string;
+  attachmentPaths: string[];
+}> {
+  const lines = content
+    .replace(/\r\n/g, "\n")
+    .split("\n");
+  const textLines: string[] = [];
+  const attachmentPaths: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      textLines.push("");
+      continue;
+    }
+
+    const attachmentSpec = parseAttachmentDirective(line);
+    const attachmentPath = await resolveExistingAttachmentPath(attachmentSpec?.path ?? line);
+    if (attachmentPath) {
+      if (attachmentSpec || isLikelyAttachmentPath(line)) {
+        attachmentPaths.push(attachmentPath);
+        continue;
+      }
+    }
+
+    if (attachmentSpec) {
+      textLines.push(rawLine);
+      continue;
+    }
+
+    if (attachmentPath && isLikelyAttachmentPath(line)) {
+      attachmentPaths.push(attachmentPath);
+      continue;
+    }
+
+    textLines.push(line);
+  }
+
+  return {
+    text: textLines.join("\n").replace(/\n{3,}/g, "\n\n").trim(),
+    attachmentPaths,
+  };
+}
+
+export function classifyFeishuAttachment(filePath: string): {
+  kind: "image";
+} | {
+  kind: "file";
+  fileType: "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream";
+} {
+  const extension = path.extname(filePath).toLowerCase();
+  if ([".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".bmp", ".ico"].includes(extension)) {
+    return { kind: "image" };
+  }
+  if (extension === ".mp4") {
+    return { kind: "file", fileType: "mp4" };
+  }
+  if (extension === ".pdf") {
+    return { kind: "file", fileType: "pdf" };
+  }
+  if ([".doc", ".docx"].includes(extension)) {
+    return { kind: "file", fileType: "doc" };
+  }
+  if ([".xls", ".xlsx", ".csv"].includes(extension)) {
+    return { kind: "file", fileType: "xls" };
+  }
+  if ([".ppt", ".pptx"].includes(extension)) {
+    return { kind: "file", fileType: "ppt" };
+  }
+  if ([".opus", ".mp3", ".wav", ".m4a"].includes(extension)) {
+    return { kind: "file", fileType: "opus" };
+  }
+
+  return { kind: "file", fileType: "stream" };
+}
+
+function deduplicateAttachmentPaths(paths: string[]): string[] {
+  return [...new Set(paths)];
+}
+
+function normalizeFeishuMarkdown(content: string): string {
+  return content
+    .replace(/\r\n/g, "\n")
+    .replace(/^#{1,6}\s+(.+)$/gm, (_, title: string) => `**${title.trim()}**`)
+    .replace(/^\s*[-*+]\s+/gm, "- ")
+    .replace(/^\s*(\d+)\.\s+/gm, "$1. ")
+    .replace(/^>\s?/gm, "> ")
+    .replace(/```([\s\S]*?)```/g, (_match: string, code: string) =>
+      code
+        .trim()
+        .split("\n")
+        .map((line) => `    ${line}`)
+        .join("\n"))
+    .replace(/`([^`\n]+)`/g, (_, inline: string) => ` ${inline} `)
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, "[$1]($2)")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function parseAttachmentDirective(line: string): {
+  kind: "file" | "image" | "attachment";
+  path: string;
+} | undefined {
+  const match = line.match(/^\[(feishu:(file|image|attachment))\]\s+(.+)$/i);
+  if (!match) {
+    return undefined;
+  }
+
+  const kind = match[2]?.toLowerCase();
+  if (kind !== "file" && kind !== "image" && kind !== "attachment") {
+    return undefined;
+  }
+
+  return {
+    kind,
+    path: match[3].trim(),
+  };
+}
+
+function isLikelyAttachmentPath(line: string): boolean {
+  if (line.includes(" ") || !line.includes(".")) {
+    return false;
+  }
+
+  const extension = path.extname(line).toLowerCase();
+  return [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+    ".tiff",
+    ".bmp",
+    ".ico",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".csv",
+    ".ppt",
+    ".pptx",
+    ".mp4",
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".opus",
+    ".txt",
+    ".md",
+    ".json",
+    ".zip",
+  ].includes(extension);
+}
+
+async function resolveExistingAttachmentPath(rawPath: string): Promise<string | undefined> {
+  const candidate = path.isAbsolute(rawPath)
+    ? rawPath
+    : resolveWorkspacePath(rawPath);
+
+  try {
+    const fileInfo = await stat(candidate);
+    if (fileInfo.isFile()) {
+      return candidate;
+    }
+  } catch {
+    if (!path.isAbsolute(rawPath)) {
+      const fallback = path.resolve(getWorkspaceRoot(), rawPath);
+      try {
+        const fileInfo = await stat(fallback);
+        if (fileInfo.isFile()) {
+          return fallback;
+        }
+      } catch {
+        return undefined;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 export function rememberMessageId(

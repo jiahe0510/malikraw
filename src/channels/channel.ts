@@ -14,6 +14,7 @@ export type ChannelDelivery = {
   session: ChannelSession;
   content: string;
   visibleToolNames: string[];
+  attachmentPaths?: string[];
 };
 
 export type ChannelStartContext = {
