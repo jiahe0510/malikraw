@@ -15,12 +15,21 @@ import {
   type StoredWorkspaceConfig,
   saveConfigBundle,
 } from "../core/config/config-store.js";
-import { getServiceStatus, restartBackgroundService, startBackgroundService } from "./service-manager.js";
+import type { ProviderProfile } from "../core/providers/compatibility-profile.js";
 import { installBundledSkills, listBundledSkillIds } from "../runtime/bundled-skills.js";
 import { getWorkspaceRoot } from "../runtime/workspace-context.js";
+import { getServiceStatus, restartBackgroundService, startBackgroundService } from "./service-manager.js";
 import { promptMultiSelect, promptSelectWithDefault, promptText } from "./terminal-ui.js";
 
-type YesNo = "yes" | "no";
+type ChannelSelection = "http" | "feishu";
+type ExistingMultiValue = "__use_existing__";
+type MemoryMode = "default" | "enhanced";
+type MemorySelection = MemoryMode | "__existing__";
+type ProviderSelection = ProviderProfile | "__existing__";
+type MultiSelectResult<T extends string> = {
+  selectedValues: T[];
+  useExisting: boolean;
+};
 
 export async function runOnboardWizard(): Promise<void> {
   console.log("malikraw onboard");
@@ -29,34 +38,19 @@ export async function runOnboardWizard(): Promise<void> {
   const existing = loadConfigBundle();
   const existingProvider = getExistingProvider(existing);
   const existingAgents = existing.agents?.agents ?? [];
-  const defaultProfile = existingProvider?.profile ?? "openai";
+  const provider = await collectProvider(existingProvider);
+  const workspaceRoot = getWorkspaceRoot();
 
-  const profile = await promptSelectWithDefault("Choose a provider profile", [
-    { label: "OpenAI-compatible", value: "openai" },
-    { label: "DeepSeek-compatible", value: "deepseek" },
-    { label: "Qwen-compatible", value: "qwen" },
-  ], defaultProfile);
-
-  const providerId = await promptText("Provider id", existingProvider?.id || "default");
-  const baseURL = await promptText(
-    "Provider base URL",
-    existingProvider?.baseURL || defaultBaseUrlForProfile(profile),
-  );
-  const apiKey = await promptText("Provider API key", existingProvider?.apiKey || "dummy");
-  const model = await promptText("Model name", existingProvider?.model || defaultModelForProfile(profile));
-
+  const availableSkillIds = await listBundledSkillIds();
+  const agents = await collectAgents(provider.id, availableSkillIds, existingAgents);
+  const defaultAgentId = agents[0]?.id ?? "main";
+  const channels = await collectChannels(existing.channels?.channels ?? [], defaultAgentId, agents.map((agent) => agent.id));
+  const tools = await collectToolsConfig(existing.tools);
+  const memory = await collectMemoryConfig(existing.memory, provider.model);
   const gatewayPort = await promptRequiredNumber(
     "Gateway port",
     String(existing.system?.gatewayPort ?? 5050),
   );
-  const workspaceRoot = getWorkspaceRoot();
-
-  const availableSkillIds = await listBundledSkillIds();
-  const agents = await collectAgents(providerId, availableSkillIds, existingAgents);
-  const defaultAgentId = agents[0]?.id ?? "main";
-  const channels = await collectChannels(existing.channels?.channels ?? [], defaultAgentId, agents.map((agent) => agent.id));
-  const tools = await collectToolsConfig(existing.tools);
-  const memory = await collectMemoryConfig(existing.memory, model);
   const startNow = await promptSelectWithDefault("Start service now?", [
     { label: "Yes", value: "yes" },
     { label: "No", value: "no" },
@@ -68,20 +62,12 @@ export async function runOnboardWizard(): Promise<void> {
     globalPolicy: "Operate as a careful agent runtime. Prefer using tools over guessing. Be explicit about uncertainty.",
   };
   const providers: StoredProvidersConfig = {
-    defaultProviderId: providerId,
-    providers: [compactProviderConfig({
-      id: providerId,
-      baseURL,
-      apiKey,
-      model,
-      profile,
-      temperature: 0.2,
-      maxTokens: 4096,
-    })],
+    defaultProviderId: provider.id,
+    providers: [compactProviderConfig(provider)],
   };
   const agentProviderMapping: StoredAgentProviderMappingConfig = {
-    defaultProviderId: providerId,
-    mappings: Object.fromEntries(agents.map((agent) => [agent.id, agent.providerId ?? providerId])),
+    defaultProviderId: provider.id,
+    mappings: Object.fromEntries(agents.map((agent) => [agent.id, agent.providerId ?? provider.id])),
   };
   const workspace: StoredWorkspaceConfig = {
     workspaceRoot,
@@ -118,12 +104,45 @@ export async function runOnboardWizard(): Promise<void> {
   if (startNow === "yes") {
     loadRuntimeConfig();
     const wasRunning = getServiceStatus().running;
-    const status = wasRunning
-      ? restartBackgroundService()
-      : startBackgroundService();
+    const status = wasRunning ? restartBackgroundService() : startBackgroundService();
     console.log(wasRunning ? "Service restarted." : "Service started.");
     console.log(`pid: ${status.running ? status.pid : "unknown"}`);
   }
+}
+
+async function collectProvider(existingProvider: StoredProviderConfig | undefined): Promise<StoredProviderConfig> {
+  const defaultProfile: ProviderProfile = existingProvider?.profile ?? "openai";
+  const selectedProfile = await promptSelectWithDefault<ProviderSelection>(
+    "Choose a provider profile",
+    [
+      { label: "OpenAI-compatible", value: "openai" },
+      { label: "DeepSeek-compatible", value: "deepseek" },
+      { label: "Qwen-compatible", value: "qwen" },
+      ...(existingProvider ? [{ label: "Use existing provider", value: "__existing__" as const }] : []),
+    ],
+    existingProvider ? "__existing__" : defaultProfile,
+  );
+
+  if (selectedProfile === "__existing__" && existingProvider) {
+    return existingProvider;
+  }
+
+  const profile: ProviderProfile = selectedProfile === "__existing__"
+    ? defaultProfile
+    : (selectedProfile as ProviderProfile);
+
+  return compactProviderConfig({
+    id: await promptText("Provider id", existingProvider?.id || "default"),
+    baseURL: await promptText(
+      "Provider base URL",
+      existingProvider?.baseURL || defaultBaseUrlForProfile(profile),
+    ),
+    apiKey: await promptText("Provider API key", existingProvider?.apiKey || "dummy"),
+    model: await promptText("Model name", existingProvider?.model || defaultModelForProfile(profile)),
+    profile,
+    temperature: 0.2,
+    maxTokens: 4096,
+  });
 }
 
 async function collectAgents(
@@ -132,13 +151,28 @@ async function collectAgents(
   existingAgents: StoredAgentConfig[],
 ): Promise<StoredAgentConfig[]> {
   const existingAgent = existingAgents.find((agent) => agent.id === "main") ?? existingAgents[0];
-  const activeSkills = await selectSkillsForAgent(
-    availableSkillIds,
+  const { selectedValues: activeSkillIds, useExisting } = await promptMultiSelectOrUseExisting(
+    "Select skills for this agent",
+    availableSkillIds.map((skillId) => ({
+      label: skillId,
+      value: skillId,
+    })),
+    [],
+    existingAgent?.activeSkillIds ?? [],
     existingAgent?.activeSkillIds ?? [],
   );
+
+  if (useExisting && existingAgent) {
+    return [{
+      id: "main",
+      activeSkillIds: existingAgent.activeSkillIds,
+      providerId,
+    }];
+  }
+
   return [{
     id: "main",
-    activeSkillIds: activeSkills,
+    activeSkillIds,
     providerId,
   }];
 }
@@ -154,32 +188,41 @@ async function collectChannels(
   const existingFeishu = existingChannels.find(
     (channel): channel is StoredFeishuChannelConfig => channel.type === "feishu",
   );
+  const { selectedValues: selectedChannels, useExisting } = await promptMultiSelectOrUseExisting<ChannelSelection>(
+    "Select channels",
+    [
+      { label: "feishu", value: "feishu" },
+      { label: "http", value: "http" },
+    ],
+    [],
+    existingChannels,
+    existingChannels.map((channel) => channel.type as ChannelSelection),
+  );
 
-  const enableHttp = await promptSelectWithDefault("Enable HTTP channel?", [
-    { label: "No", value: "no" },
-    { label: "Yes", value: "yes" },
-  ], existingHttp ? "yes" : "no");
-
-  const enableFeishu = await promptSelectWithDefault("Enable Feishu channel?", [
-    { label: "No", value: "no" },
-    { label: "Yes", value: "yes" },
-  ], existingFeishu ? "yes" : "no");
+  if (useExisting) {
+    return existingChannels;
+  }
 
   const channels: StoredChannelConfig[] = [];
-  if (enableHttp === "yes") {
-    const httpAgentId = await promptSelectWithDefault("HTTP channel agent", agentIds.map((agentId) => ({
-      label: agentId,
-      value: agentId,
-    })), existingHttp?.agentId || defaultAgentId);
+
+  if (selectedChannels.includes("feishu")) {
+    channels.push(await collectFeishuChannel(existingFeishu, defaultAgentId, agentIds));
+  }
+
+  if (selectedChannels.includes("http")) {
+    const agentId = await promptSelectWithDefault(
+      "HTTP channel agent",
+      agentIds.map((value) => ({
+        label: value,
+        value,
+      })),
+      existingHttp?.agentId || defaultAgentId,
+    );
     channels.push({
       id: await promptText("HTTP channel id", existingHttp?.id || "http"),
       type: "http",
-      agentId: httpAgentId,
+      agentId,
     });
-  }
-
-  if (enableFeishu === "yes") {
-    channels.push(await collectFeishuChannel(existingFeishu, defaultAgentId, agentIds));
   }
 
   return channels;
@@ -190,19 +233,31 @@ async function collectFeishuChannel(
   defaultAgentId: string,
   agentIds: string[],
 ): Promise<StoredFeishuChannelConfig> {
-  const replyMode = await promptSelectWithDefault("Feishu reply mode", [
-    { label: "Send to chat", value: "chat" },
-    { label: "Reply to message", value: "reply" },
-    { label: "Reply in thread", value: "thread" },
-  ], existingChannel?.replyMode ?? (existingChannel?.autoReplyInThread ? "thread" : "chat"));
-  const messageFormat = await promptSelectWithDefault("Feishu message format", [
-    { label: "Markdown card", value: "interactive" },
-    { label: "Plain text", value: "text" },
-  ], existingChannel?.messageFormat ?? "interactive");
-  const agentId = await promptSelectWithDefault("Feishu channel agent", agentIds.map((value) => ({
+  const replyMode = await promptSelectWithDefault(
+    "Feishu reply mode",
+    [
+      { label: "Send to chat", value: "chat" },
+      { label: "Reply to message", value: "reply" },
+      { label: "Reply in thread", value: "thread" },
+    ],
+    existingChannel?.replyMode ?? (existingChannel?.autoReplyInThread ? "thread" : "chat"),
+  );
+  const messageFormat = await promptSelectWithDefault(
+    "Feishu message format",
+    [
+      { label: "Markdown card", value: "interactive" },
+      { label: "Plain text", value: "text" },
+    ],
+    existingChannel?.messageFormat ?? "interactive",
+  );
+  const agentId = await promptSelectWithDefault(
+    "Feishu channel agent",
+    agentIds.map((value) => ({
       label: value,
       value,
-    })), existingChannel?.agentId || defaultAgentId);
+    })),
+    existingChannel?.agentId || defaultAgentId,
+  );
 
   return {
     id: await promptText("Feishu channel id", existingChannel?.id || "飞书"),
@@ -216,14 +271,17 @@ async function collectFeishuChannel(
 }
 
 async function collectToolsConfig(existingTools: StoredToolsConfig | undefined): Promise<StoredToolsConfig> {
-  const selectedTools = await promptMultiSelect(
+  const { selectedValues: selectedTools, useExisting } = await promptMultiSelectOrUseExisting(
     "Select tools",
-    [{
-      label: "web_search",
-      value: "web_search",
-    }],
+    [{ label: "web_search", value: "web_search" }],
+    [],
+    existingTools,
     existingTools?.braveSearchApiKey ? ["web_search"] : [],
   );
+
+  if (useExisting && existingTools) {
+    return existingTools;
+  }
 
   if (!selectedTools.includes("web_search")) {
     return {
@@ -242,12 +300,23 @@ async function collectMemoryConfig(
   existingMemory: StoredMemoryConfig | undefined,
   defaultEmbeddingModel: string,
 ): Promise<StoredMemoryConfig> {
-  const enableMemory = await promptSelectWithDefault("Enable Enhanced memory?", [
-    { label: "Yes", value: "yes" },
-    { label: "No", value: "no" },
-  ], existingMemory?.enabled ? "yes" : "no");
+  const selectedMode = await promptSelectWithDefault<MemorySelection>(
+    "Select memory mode",
+    [
+      { label: "Default", value: "default" },
+      { label: "Enhanced", value: "enhanced" },
+      ...(existingMemory ? [{ label: "Use existing memory config", value: "__existing__" as const }] : []),
+    ],
+    existingMemory ? "__existing__" : "default",
+  );
 
-  if (enableMemory === "no") {
+  if (selectedMode === "__existing__" && existingMemory) {
+    return existingMemory;
+  }
+
+  const enableEnhanced = selectedMode === "enhanced";
+
+  if (!enableEnhanced) {
     return {
       enabled: false,
       postgresUrl: existingMemory?.postgresUrl,
@@ -336,28 +405,29 @@ async function promptRequiredNumber(question: string, defaultValue: string): Pro
   }
 }
 
-async function selectSkillsForAgent(
-  availableSkillIds: string[],
-  defaultSkillIds: string[],
-): Promise<string[]> {
-  if (availableSkillIds.length === 0) {
-    return [];
+async function promptMultiSelectOrUseExisting<T extends string>(
+  question: string,
+  options: Array<{ label: string; value: T }>,
+  defaultValues: readonly T[],
+  existingMarker: unknown,
+  existingValues: readonly T[] = defaultValues,
+): Promise<MultiSelectResult<T>> {
+  const choices = hasExistingSelection(existingMarker, existingValues)
+    ? [...options, { label: "Skip and use existing", value: "__use_existing__" as ExistingMultiValue }]
+    : options;
+  const selected = await promptMultiSelect<T | ExistingMultiValue>(question, choices, defaultValues);
+
+  if (selected.includes("__use_existing__")) {
+    return {
+      selectedValues: [...existingValues],
+      useExisting: true,
+    };
   }
 
-  const selected = await promptMultiSelect(
-    "Select skills for this agent",
-    availableSkillIds.map((skillId) => ({
-      label: skillId,
-      value: skillId,
-    })),
-    defaultSkillIds,
-  );
-
-  if (selected.length > 0) {
-    return selected;
-  }
-
-  return [];
+  return {
+    selectedValues: selected.filter((value): value is T => value !== "__use_existing__"),
+    useExisting: false,
+  };
 }
 
 function defaultBaseUrlForProfile(profile: StoredProviderConfig["profile"]): string {
@@ -392,4 +462,16 @@ function getExistingProvider(
   const defaultProviderId = existing.providers?.defaultProviderId;
   return existing.providers?.providers.find((provider) => provider.id === defaultProviderId)
     ?? existing.providers?.providers[0];
+}
+
+function hasExistingSelection(existingMarker: unknown, existingValues: readonly string[]): boolean {
+  if (existingValues.length > 0) {
+    return true;
+  }
+
+  if (Array.isArray(existingMarker)) {
+    return existingMarker.length > 0;
+  }
+
+  return Boolean(existingMarker);
 }
