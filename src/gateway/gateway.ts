@@ -1,13 +1,15 @@
 import type { AgentMessage } from "../core/agent/types.js";
 import type { AgentRuntime } from "../runtime/create-agent-runtime.js";
-import type { ChannelDelivery, ChannelInboundMessage, GatewayChannel } from "./channel.js";
+import type { ChannelDelivery, ChannelInboundMessage, GatewayChannel, MessageDispatch } from "./channel.js";
 import { InMemorySessionStore, type SessionStore } from "./session-store.js";
+import type { ChannelMedia } from "../channels/channel.js";
 
 export type GatewayHandleMessageResult = {
   output: string;
   visibleToolNames: string[];
   sessionMessages: AgentMessage[];
-  attachmentPaths: string[];
+  media: ChannelMedia[];
+  messageDispatches: MessageDispatch[];
 };
 
 export class Gateway {
@@ -55,11 +57,15 @@ export class Gateway {
     const sessionMessages = filterSessionMessages(result.messages);
     await this.sessionStore.write(message.session, sessionMessages);
 
+    for (const dispatch of result.messageDispatches) {
+      await this.dispatchStructuredMessage(message.session, dispatch);
+    }
+
     const delivery: ChannelDelivery = {
       session: message.session,
       content: result.output,
       visibleToolNames: result.visibleToolNames,
-      attachmentPaths: result.attachmentPaths,
+      media: result.media,
     };
     await channel.sendMessage(delivery);
 
@@ -75,7 +81,8 @@ export class Gateway {
       output: result.output,
       visibleToolNames: result.visibleToolNames,
       sessionMessages,
-      attachmentPaths: result.attachmentPaths,
+      media: result.media,
+      messageDispatches: result.messageDispatches,
     };
   }
 
@@ -85,6 +92,31 @@ export class Gateway {
     }
 
     return this.runtimeResolver;
+  }
+
+  private async dispatchStructuredMessage(
+    baseSession: ChannelInboundMessage["session"],
+    dispatch: MessageDispatch,
+  ): Promise<void> {
+    const targetSession = {
+      ...baseSession,
+      ...(dispatch.session ?? {}),
+      metadata: baseSession.metadata,
+    };
+    const targetChannel = this.channels.get(targetSession.channelId);
+    if (!targetChannel) {
+      throw new Error(`Channel "${targetSession.channelId}" is not registered.`);
+    }
+
+    console.log(
+      `[gateway:dispatch] agent=${targetSession.agentId ?? "default"} channel=${targetSession.channelId} session=${targetSession.sessionId} media=${dispatch.media?.length ?? 0} preview=${JSON.stringify(truncate(dispatch.content))}`,
+    );
+    await targetChannel.sendMessage({
+      session: targetSession,
+      content: dispatch.content,
+      visibleToolNames: [],
+      media: dispatch.media,
+    });
   }
 }
 

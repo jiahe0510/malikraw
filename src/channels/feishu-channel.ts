@@ -1,10 +1,11 @@
-import { readFile, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type { StoredFeishuChannelConfig } from "../core/config/config-store.js";
-import type { ChannelDelivery, ChannelInboundMessage, ChannelStartContext, GatewayChannel } from "./channel.js";
+import type { ChannelDelivery, ChannelInboundMessage, ChannelMedia, ChannelStartContext, GatewayChannel } from "./channel.js";
 import { getWorkspaceRoot, resolveWorkspacePath } from "../tools/_workspace.js";
 
 const FEISHU_REPLY_MESSAGE_ID = "feishuReplyMessageId";
@@ -50,6 +51,7 @@ export class FeishuChannel implements GatewayChannel {
     this.wsClient = new Lark.WSClient({
       appId: config.appId,
       appSecret: config.appSecret,
+      domain: "https://open.feishu.cn",
       loggerLevel: Lark.LoggerLevel.warn,
     });
   }
@@ -82,11 +84,15 @@ export class FeishuChannel implements GatewayChannel {
   async sendMessage(delivery: ChannelDelivery): Promise<void> {
     const replyMessageId = delivery.session.metadata?.[FEISHU_REPLY_MESSAGE_ID];
     const chatId = delivery.session.metadata?.[FEISHU_CHAT_ID];
+    const threadId = delivery.session.metadata?.[FEISHU_THREAD_ID];
     const replyMode = resolveReplyMode(this.config);
     const parsed = await parseFeishuDeliveryContent(delivery.content);
-    const attachmentPaths = deduplicateAttachmentPaths([
-      ...parsed.attachmentPaths,
-      ...(delivery.attachmentPaths ?? []),
+    const mediaItems = deduplicateMediaItems([
+      ...(delivery.media ?? []),
+      ...parsed.attachmentPaths.map((attachmentPath) => ({
+        kind: classifyFeishuAttachment(attachmentPath).kind,
+        path: attachmentPath,
+      })),
     ]);
 
     if (parsed.text) {
@@ -99,13 +105,13 @@ export class FeishuChannel implements GatewayChannel {
       });
     }
 
-    for (const attachmentPath of attachmentPaths) {
+    for (const media of mediaItems) {
       await this.sendAttachment({
         session: delivery.session,
         replyMode,
         replyMessageId,
         chatId,
-        attachmentPath,
+        media,
       });
     }
   }
@@ -115,6 +121,7 @@ export class FeishuChannel implements GatewayChannel {
     replyMode: "chat" | "reply" | "thread";
     replyMessageId?: string;
     chatId?: string;
+    threadId?: string;
     payload: ReturnType<typeof buildFeishuOutboundPayload>;
   }): Promise<void> {
     const { session, replyMode, replyMessageId, chatId, payload } = input;
@@ -122,7 +129,7 @@ export class FeishuChannel implements GatewayChannel {
       console.log(
         `[channel:feishu] replying id=${this.id} mode=${replyMode} format=${payload.msgType} agent=${session.agentId ?? "default"} session=${session.sessionId} replyMessageId=${replyMessageId}`,
       );
-      await this.client.im.message.reply({
+      const response = await this.client.im.message.reply({
         path: {
           message_id: replyMessageId,
         },
@@ -132,6 +139,7 @@ export class FeishuChannel implements GatewayChannel {
           reply_in_thread: replyMode === "thread",
         },
       });
+      logFeishuApiResult("message.reply", response);
       return;
     }
 
@@ -142,7 +150,7 @@ export class FeishuChannel implements GatewayChannel {
     console.log(
       `[channel:feishu] sending id=${this.id} mode=chat format=${payload.msgType} agent=${session.agentId ?? "default"} session=${session.sessionId} chatId=${chatId}`,
     );
-    await this.client.im.message.create({
+    const response = await this.client.im.message.create({
       params: {
         receive_id_type: "chat_id",
       },
@@ -152,6 +160,7 @@ export class FeishuChannel implements GatewayChannel {
         msg_type: payload.msgType,
       },
     });
+    logFeishuApiResult("message.create", response);
   }
 
   private async sendAttachment(input: {
@@ -159,25 +168,29 @@ export class FeishuChannel implements GatewayChannel {
     replyMode: "chat" | "reply" | "thread";
     replyMessageId?: string;
     chatId?: string;
-    attachmentPath: string;
+    media: ChannelMedia;
   }): Promise<void> {
-    const attachment = classifyFeishuAttachment(input.attachmentPath);
+    const attachment = classifyFeishuAttachment(input.media.path);
+    const fileName = input.media.fileName || path.basename(input.media.path);
     console.log(
-      `[channel:feishu] attachment id=${this.id} agent=${input.session.agentId ?? "default"} session=${input.session.sessionId} path=${input.attachmentPath} kind=${attachment.kind}`,
+      `[channel:feishu] attachment id=${this.id} agent=${input.session.agentId ?? "default"} session=${input.session.sessionId} path=${input.media.path} kind=${attachment.kind}`,
     );
     if (attachment.kind === "image") {
       const uploaded = await this.client.im.image.create({
         data: {
           image_type: "message",
-          image: await readFile(input.attachmentPath),
+          image: createReadStream(input.media.path),
         },
       });
+      logFeishuApiResult("image.create", uploaded);
       if (!uploaded?.image_key) {
-        throw new Error(`Failed to upload image attachment: ${input.attachmentPath}`);
+        throw new Error(`Failed to upload image attachment: ${input.media.path}`);
       }
 
-      await this.sendFeishuPayload({
-        ...input,
+      await this.sendAttachmentMessage({
+        session: input.session,
+        replyMode: input.replyMode,
+        chatId: input.chatId,
         payload: {
           msgType: "image",
           content: JSON.stringify({ image_key: uploaded.image_key }),
@@ -186,24 +199,82 @@ export class FeishuChannel implements GatewayChannel {
       return;
     }
 
-    const uploaded = await this.client.im.file.create({
-      data: {
-        file_type: attachment.fileType,
-        file_name: path.basename(input.attachmentPath),
-        file: await readFile(input.attachmentPath),
-      },
-    });
+    const uploaded = await this.uploadFileAttachment(input.media.path, attachment.uploadFileType, fileName);
     if (!uploaded?.file_key) {
-      throw new Error(`Failed to upload file attachment: ${input.attachmentPath}`);
+      throw new Error(`Failed to upload file attachment: ${input.media.path}`);
     }
 
-    await this.sendFeishuPayload({
-      ...input,
+    await this.sendAttachmentMessage({
+      session: input.session,
+      replyMode: input.replyMode,
+      chatId: input.chatId,
       payload: {
         msgType: "file",
-        content: JSON.stringify({ file_key: uploaded.file_key }),
+        content: buildFeishuFileMessageContent(uploaded.file_key, attachment.messageFileType, fileName),
       },
     });
+  }
+
+  private async uploadFileAttachment(
+    attachmentPath: string,
+    fileType: "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream",
+    fileName: string,
+  ): Promise<{ file_key?: string | undefined } | null> {
+    try {
+      const response = await this.client.im.file.create({
+        data: {
+          file_type: fileType,
+          file_name: fileName,
+        },
+        files: {
+          file: {
+            path: attachmentPath,
+          },
+        },
+      } as never);
+      logFeishuApiResult("file.create", response);
+      return response;
+    } catch (error) {
+      console.warn(
+        `[channel:feishu] path upload failed id=${this.id} path=${attachmentPath} fileType=${fileType}; falling back to stream upload`,
+        formatFeishuError(error),
+      );
+      const response = await this.client.im.file.create({
+        data: {
+          file_type: fileType,
+          file_name: fileName,
+          file: createReadStream(attachmentPath),
+        },
+      });
+      logFeishuApiResult("file.create", response);
+      return response;
+    }
+  }
+
+  private async sendAttachmentMessage(input: {
+    session: ChannelDelivery["session"];
+    replyMode: "chat" | "reply" | "thread";
+    chatId?: string;
+    payload: {
+      msgType: "image" | "file";
+      content: string;
+    };
+  }): Promise<void> {
+    const target = resolveFeishuSendTarget(input.chatId);
+    console.log(
+      `[channel:feishu] sending attachment id=${this.id} mode=${target.receiveIdType} format=${input.payload.msgType} agent=${input.session.agentId ?? "default"} session=${input.session.sessionId} target=${target.receiveId}`,
+    );
+    const response = await this.client.im.message.create({
+      params: {
+        receive_id_type: target.receiveIdType,
+      },
+      data: {
+        receive_id: target.receiveId,
+        msg_type: input.payload.msgType,
+        content: input.payload.content,
+      },
+    });
+    logFeishuApiResult("message.create", response);
   }
 
   private async handleInboundEvent(
@@ -409,36 +480,121 @@ export function classifyFeishuAttachment(filePath: string): {
   kind: "image";
 } | {
   kind: "file";
-  fileType: "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream";
+  uploadFileType: "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream";
+  messageFileType: "file" | "pdf" | "mp3" | "video";
 } {
   const extension = path.extname(filePath).toLowerCase();
   if ([".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".bmp", ".ico"].includes(extension)) {
     return { kind: "image" };
   }
   if (extension === ".mp4") {
-    return { kind: "file", fileType: "mp4" };
+    return { kind: "file", uploadFileType: "mp4", messageFileType: "video" };
   }
   if (extension === ".pdf") {
-    return { kind: "file", fileType: "pdf" };
+    return { kind: "file", uploadFileType: "pdf", messageFileType: "pdf" };
   }
   if ([".doc", ".docx"].includes(extension)) {
-    return { kind: "file", fileType: "doc" };
+    return { kind: "file", uploadFileType: "doc", messageFileType: "file" };
   }
   if ([".xls", ".xlsx", ".csv"].includes(extension)) {
-    return { kind: "file", fileType: "xls" };
+    return { kind: "file", uploadFileType: "xls", messageFileType: "file" };
   }
   if ([".ppt", ".pptx"].includes(extension)) {
-    return { kind: "file", fileType: "ppt" };
+    return { kind: "file", uploadFileType: "ppt", messageFileType: "file" };
   }
   if ([".opus", ".mp3", ".wav", ".m4a"].includes(extension)) {
-    return { kind: "file", fileType: "opus" };
+    return { kind: "file", uploadFileType: "opus", messageFileType: "mp3" };
   }
 
-  return { kind: "file", fileType: "stream" };
+  return { kind: "file", uploadFileType: "stream", messageFileType: "file" };
+}
+
+export function buildFeishuFileMessageContent(
+  fileKey: string,
+  fileType: "file" | "pdf" | "mp3" | "video",
+  fileName: string,
+): string {
+  return JSON.stringify({
+    file_key: fileKey,
+    file_type: fileType,
+    file_name: fileName,
+  });
+}
+
+function resolveFeishuSendTarget(
+  chatId?: string,
+): {
+  receiveIdType: "chat_id";
+  receiveId: string;
+} {
+  if (!chatId) {
+    throw new Error("Missing Feishu chat metadata for outbound delivery.");
+  }
+
+  return {
+    receiveIdType: "chat_id",
+    receiveId: chatId,
+  };
+}
+
+function logFeishuApiResult(action: string, response: unknown): void {
+  const summary = summarizeFeishuResponse(response);
+  console.log(`[channel:feishu] ${action} result=${summary}`);
+}
+
+function summarizeFeishuResponse(response: unknown): string {
+  if (response === null || response === undefined) {
+    return "null";
+  }
+
+  if (typeof response !== "object") {
+    return String(response);
+  }
+
+  try {
+    return JSON.stringify(response);
+  } catch {
+    return String(response);
+  }
+}
+
+function formatFeishuError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+
+  const candidate = error as Error & {
+    response?: {
+      data?: unknown;
+      status?: number;
+    };
+    code?: string;
+  };
+
+  const parts = [error.message];
+  if (candidate.code) {
+    parts.push(`code=${candidate.code}`);
+  }
+  if (candidate.response?.status) {
+    parts.push(`status=${candidate.response.status}`);
+  }
+  if (candidate.response?.data !== undefined) {
+    parts.push(`data=${summarizeFeishuResponse(candidate.response.data)}`);
+  }
+
+  return parts.join(" ");
 }
 
 function deduplicateAttachmentPaths(paths: string[]): string[] {
   return [...new Set(paths)];
+}
+
+function deduplicateMediaItems(items: ChannelMedia[]): ChannelMedia[] {
+  const mediaByPath = new Map<string, ChannelMedia>();
+  for (const item of items) {
+    mediaByPath.set(item.path, item);
+  }
+  return [...mediaByPath.values()];
 }
 
 function normalizeFeishuMarkdown(content: string): string {

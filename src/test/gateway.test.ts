@@ -25,7 +25,8 @@ test("gateway routes messages through channel and persists session history", asy
         output: `reply:${userRequest}`,
         visibleToolNames: ["read_file"],
         messages,
-        attachmentPaths: [],
+        media: [],
+        messageDispatches: [],
       };
     },
   };
@@ -83,7 +84,8 @@ test("gateway isolates sessions by channel and session id", async () => {
           { role: "user", content: userRequest },
           { role: "assistant", content: userRequest },
         ],
-        attachmentPaths: [],
+        media: [],
+        messageDispatches: [],
       };
     },
   };
@@ -129,7 +131,8 @@ test("gateway isolates sessions by agent id", async () => {
           { role: "user", content: userRequest },
           { role: "assistant", content: userRequest },
         ],
-        attachmentPaths: [],
+        media: [],
+        messageDispatches: [],
       };
     },
   };
@@ -160,7 +163,7 @@ test("gateway isolates sessions by agent id", async () => {
   ]);
 });
 
-test("gateway passes structured attachment paths through to channels", async () => {
+test("gateway passes structured media through to channels", async () => {
   const deliveries: ChannelDelivery[] = [];
 
   const runtime: AgentRuntime = {
@@ -173,7 +176,11 @@ test("gateway passes structured attachment paths through to channels", async () 
         { role: "user", content: userRequest },
         { role: "assistant", content: `reply:${userRequest}` },
       ],
-      attachmentPaths: ["artifacts/report.pdf", "artifacts/chart.png"],
+      media: [
+        { kind: "file", path: "artifacts/report.pdf" },
+        { kind: "image", path: "artifacts/chart.png" },
+      ],
+      messageDispatches: [],
     }),
   };
 
@@ -190,7 +197,50 @@ test("gateway passes structured attachment paths through to channels", async () 
     content: "send report",
   });
 
-  assert.deepEqual(deliveries[0]?.attachmentPaths, ["artifacts/report.pdf", "artifacts/chart.png"]);
+  assert.deepEqual(deliveries[0]?.media, [
+    { kind: "file", path: "artifacts/report.pdf" },
+    { kind: "image", path: "artifacts/chart.png" },
+  ]);
+});
+
+test("gateway dispatches structured message tool outputs through the target channel", async () => {
+  const deliveries: ChannelDelivery[] = [];
+
+  const runtime: AgentRuntime = {
+    workspaceRoot: "/tmp/workspace",
+    ask: async ({ userRequest, history }) => ({
+      output: `reply:${userRequest}`,
+      visibleToolNames: [],
+      messages: [
+        ...(history ?? []),
+        { role: "user", content: userRequest },
+        { role: "assistant", content: `reply:${userRequest}` },
+      ],
+      media: [],
+      messageDispatches: [{
+        content: "sent via tool",
+        media: [{ kind: "image", path: "/tmp/chart.png" }],
+      }],
+    }),
+  };
+
+  const gateway = new Gateway(runtime);
+  gateway.registerChannel({
+    id: "feishu",
+    sendMessage: (delivery) => {
+      deliveries.push(delivery);
+    },
+  });
+
+  await gateway.handleMessage({
+    session: { agentId: "main", channelId: "feishu", sessionId: "session-1" },
+    content: "send chart",
+  });
+
+  assert.equal(deliveries.length, 2);
+  assert.equal(deliveries[0]?.content, "sent via tool");
+  assert.deepEqual(deliveries[0]?.media, [{ kind: "image", path: "/tmp/chart.png" }]);
+  assert.equal(deliveries[1]?.content, "reply:send chart");
 });
 
 test("compactSessionMessages keeps a summary plus recent messages", () => {

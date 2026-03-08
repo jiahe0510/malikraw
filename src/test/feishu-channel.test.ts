@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   buildFeishuOutboundPayload,
+  buildFeishuFileMessageContent,
   classifyFeishuAttachment,
   extractFeishuText,
   parseFeishuDeliveryContent,
@@ -85,9 +86,32 @@ test("buildFeishuOutboundPayload can still emit plain text", () => {
 
 test("classifyFeishuAttachment maps common file types", () => {
   assert.deepEqual(classifyFeishuAttachment("/tmp/a.png"), { kind: "image" });
-  assert.deepEqual(classifyFeishuAttachment("/tmp/a.pdf"), { kind: "file", fileType: "pdf" });
-  assert.deepEqual(classifyFeishuAttachment("/tmp/a.docx"), { kind: "file", fileType: "doc" });
-  assert.deepEqual(classifyFeishuAttachment("/tmp/a.bin"), { kind: "file", fileType: "stream" });
+  assert.deepEqual(classifyFeishuAttachment("/tmp/a.pdf"), {
+    kind: "file",
+    uploadFileType: "pdf",
+    messageFileType: "pdf",
+  });
+  assert.deepEqual(classifyFeishuAttachment("/tmp/a.docx"), {
+    kind: "file",
+    uploadFileType: "doc",
+    messageFileType: "file",
+  });
+  assert.deepEqual(classifyFeishuAttachment("/tmp/a.bin"), {
+    kind: "file",
+    uploadFileType: "stream",
+    messageFileType: "file",
+  });
+});
+
+test("buildFeishuFileMessageContent includes file metadata", () => {
+  assert.equal(
+    buildFeishuFileMessageContent("file-key", "pdf", "report.pdf"),
+    JSON.stringify({
+      file_key: "file-key",
+      file_type: "pdf",
+      file_name: "report.pdf",
+    }),
+  );
 });
 
 test("parseFeishuDeliveryContent separates text from attachment paths", async () => {

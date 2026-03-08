@@ -5,9 +5,11 @@ import { createHttpChannel } from "./http-channel.js";
 import type { GatewayChannel } from "./channel.js";
 
 export type {
+  ChannelMedia,
   ChannelDelivery,
   ChannelInboundMessage,
   ChannelSession,
+  MessageDispatch,
   ChannelStartContext,
   GatewayChannel,
 } from "./channel.js";

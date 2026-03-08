@@ -12,6 +12,7 @@ import type { AgentMessage } from "../core/agent/types.js";
 import { createMemoryService } from "../memory/memory-service.js";
 import { runMemoryMigrations } from "../memory/migrate.js";
 import { readBundledPersonalityFile } from "./system-template-context.js";
+import type { MessageDispatch } from "../channels/channel.js";
 import {
   ensureWorkspaceInitialized,
   getSkillsDirectory,
@@ -23,6 +24,7 @@ import {
   setWorkspaceRoot,
 } from "./workspace-context.js";
 import type { ToolResultEnvelope } from "../core/tool-registry/types.js";
+import type { ChannelMedia } from "../channels/channel.js";
 
 export type AgentRuntime = {
   workspaceRoot: string;
@@ -38,7 +40,8 @@ export type AgentRuntime = {
     output: string;
     visibleToolNames: string[];
     messages: AgentMessage[];
-    attachmentPaths: string[];
+    media: ChannelMedia[];
+    messageDispatches: MessageDispatch[];
   }>;
 };
 
@@ -120,49 +123,227 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         output: result.finalOutput,
         visibleToolNames: result.visibleToolNames,
         messages: result.messages,
-        attachmentPaths: extractAttachmentPaths(result.toolResults),
+        media: extractMedia(result.toolResults),
+        messageDispatches: extractMessageDispatches(result.toolResults),
       };
     },
   };
 }
 
-function extractAttachmentPaths(toolResults: ToolResultEnvelope[]): string[] {
-  const paths = new Set<string>();
+function extractMessageDispatches(toolResults: ToolResultEnvelope[]): MessageDispatch[] {
+  const dispatches: MessageDispatch[] = [];
+
+  for (const result of toolResults) {
+    if (!result.ok || result.toolName !== "message") {
+      continue;
+    }
+
+    const dispatch = normalizeMessageDispatch(result.data);
+    if (dispatch) {
+      dispatches.push(dispatch);
+    }
+  }
+
+  return dispatches;
+}
+
+function normalizeMessageDispatch(value: unknown): MessageDispatch | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const content = typeof record.content === "string" ? record.content : "";
+  const media = Array.isArray(record.media)
+    ? record.media
+      .map((item) => normalizeDispatchedMedia(item))
+      .filter((item): item is ChannelMedia => item !== undefined)
+    : undefined;
+  const session = normalizeDispatchSession(record.session);
+
+  if (!content.trim() && (!media || media.length === 0)) {
+    return undefined;
+  }
+
+  return {
+    session,
+    content,
+    media,
+  };
+}
+
+function normalizeDispatchedMedia(value: unknown): ChannelMedia | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.path !== "string") {
+    return undefined;
+  }
+
+  const kind = record.kind === "image" || record.kind === "file"
+    ? record.kind
+    : inferMediaKindFromPath(record.path);
+
+  return {
+    kind,
+    path: record.path,
+    ...(typeof record.fileName === "string" ? { fileName: record.fileName } : {}),
+    ...(typeof record.caption === "string" ? { caption: record.caption } : {}),
+  };
+}
+
+function normalizeDispatchSession(value: unknown): MessageDispatch["session"] {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const session = Object.fromEntries(
+    Object.entries({
+      agentId: record.agentId,
+      userId: record.userId,
+      projectId: record.projectId,
+      channelId: record.channelId,
+      sessionId: record.sessionId,
+    }).filter(([, fieldValue]) => typeof fieldValue === "string" && fieldValue.trim().length > 0),
+  );
+
+  return Object.keys(session).length > 0 ? session : undefined;
+}
+
+function extractMedia(toolResults: ToolResultEnvelope[]): ChannelMedia[] {
+  const mediaByPath = new Map<string, ChannelMedia>();
 
   for (const result of toolResults) {
     if (!result.ok) {
       continue;
     }
 
-    for (const pathValue of collectPathCandidates(result.data)) {
-      if (looksLikeSendableAttachment(pathValue)) {
-        paths.add(pathValue);
+    for (const media of collectMediaCandidates(result.data)) {
+      mediaByPath.set(media.path, media);
+    }
+  }
+
+  return [...mediaByPath.values()];
+}
+
+function collectMediaCandidates(value: unknown): ChannelMedia[] {
+  const collected: ChannelMedia[] = [];
+  visitMediaCandidate(value, collected);
+  return deduplicateMedia(collected);
+}
+
+function visitMediaCandidate(value: unknown, collected: ChannelMedia[]): void {
+  if (!value) {
+    return;
+  }
+
+  if (typeof value === "string") {
+    const media = toMediaFromPath(value);
+    if (media) {
+      collected.push(media);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      visitMediaCandidate(item, collected);
+    }
+    return;
+  }
+
+  if (typeof value !== "object") {
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const key of ["path", "filePath", "outputPath"]) {
+    const candidate = record[key];
+    if (typeof candidate === "string") {
+      const media = toMediaFromPath(candidate, {
+        fileName: readString(record.fileName),
+        caption: readString(record.caption) ?? readString(record.description) ?? readString(record.title),
+      });
+      if (media) {
+        collected.push(media);
       }
     }
   }
 
-  return [...paths];
+  for (const key of ["paths", "files", "artifacts", "attachments", "images"]) {
+    if (key in record) {
+      visitMediaCandidate(record[key], collected);
+    }
+  }
+
+  if (typeof record.type === "string" && typeof record.path === "string") {
+    const forcedKind = record.type === "image" || record.type === "file" ? record.type : undefined;
+    const media = toMediaFromPath(record.path, {
+      kind: forcedKind,
+      fileName: readString(record.fileName),
+      caption: readString(record.caption) ?? readString(record.description) ?? readString(record.title),
+    });
+    if (media) {
+      collected.push(media);
+    }
+  }
 }
 
-function collectPathCandidates(value: unknown): string[] {
-  if (!value || typeof value !== "object") {
-    return [];
+function toMediaFromPath(
+  filePath: string,
+  options: {
+    kind?: "image" | "file";
+    fileName?: string;
+    caption?: string;
+  } = {},
+): ChannelMedia | undefined {
+  if (!looksLikeSendableAttachment(filePath)) {
+    return undefined;
   }
 
-  const record = value as Record<string, unknown>;
-  const paths: string[] = [];
+  return {
+    kind: options.kind ?? inferMediaKind(filePath),
+    path: filePath,
+    fileName: options.fileName,
+    caption: options.caption,
+  };
+}
 
-  if (typeof record.path === "string") {
-    paths.push(record.path);
-  }
-  if (typeof record.filePath === "string") {
-    paths.push(record.filePath);
-  }
-  if (typeof record.outputPath === "string") {
-    paths.push(record.outputPath);
+function inferMediaKindFromPath(filePath: string): "image" | "file" {
+  return inferMediaKind(filePath);
+}
+
+function inferMediaKind(filePath: string): "image" | "file" {
+  const normalized = filePath.toLowerCase();
+  if ([
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+    ".tiff",
+    ".bmp",
+    ".ico",
+  ].some((extension) => normalized.endsWith(extension))) {
+    return "image";
   }
 
-  return paths;
+  return "file";
+}
+
+function deduplicateMedia(mediaItems: ChannelMedia[]): ChannelMedia[] {
+  const mediaByPath = new Map<string, ChannelMedia>();
+  for (const item of mediaItems) {
+    mediaByPath.set(item.path, item);
+  }
+  return [...mediaByPath.values()];
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function looksLikeSendableAttachment(filePath: string): boolean {

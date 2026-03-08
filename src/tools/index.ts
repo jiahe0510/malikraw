@@ -2,6 +2,7 @@ import { editFileTool } from "./edit-file.js";
 import { execShellTool } from "./exec-shell.js";
 import type { ToolRegistry } from "../core/tool-registry/index.js";
 import { manageProcessTool } from "./process-manager.js";
+import { messageTool } from "./message.js";
 import { readFileTool } from "./read-file.js";
 import { webSearchTool } from "./web-search.js";
 import { writeFileTool } from "./write-file.js";
@@ -12,6 +13,7 @@ export const builtinTools = [
   editFileTool,
   execShellTool,
   manageProcessTool,
+  messageTool,
   webSearchTool,
 ];
 
