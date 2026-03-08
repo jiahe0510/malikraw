@@ -101,6 +101,16 @@ test("classifyFeishuAttachment maps common file types", () => {
     uploadFileType: "stream",
     messageFileType: "file",
   });
+  assert.deepEqual(classifyFeishuAttachment("/tmp/a.mp3"), {
+    kind: "file",
+    uploadFileType: "stream",
+    messageFileType: "file",
+  });
+  assert.deepEqual(classifyFeishuAttachment("/tmp/a.opus"), {
+    kind: "file",
+    uploadFileType: "stream",
+    messageFileType: "file",
+  });
 });
 
 test("buildFeishuFileMessageContent includes file metadata", () => {

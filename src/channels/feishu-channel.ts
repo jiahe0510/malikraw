@@ -217,7 +217,7 @@ export class FeishuChannel implements GatewayChannel {
 
   private async uploadFileAttachment(
     attachmentPath: string,
-    fileType: "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream",
+    fileType: "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream",
     fileName: string,
   ): Promise<{ file_key?: string | undefined } | null> {
     try {
@@ -245,7 +245,7 @@ export class FeishuChannel implements GatewayChannel {
           file_name: fileName,
           file: createReadStream(attachmentPath),
         },
-      });
+      } as never);
       logFeishuApiResult("file.create", response);
       return response;
     }
@@ -480,8 +480,8 @@ export function classifyFeishuAttachment(filePath: string): {
   kind: "image";
 } | {
   kind: "file";
-  uploadFileType: "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream";
-  messageFileType: "file" | "pdf" | "mp3" | "video";
+  uploadFileType: "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream";
+  messageFileType: "file" | "pdf" | "video";
 } {
   const extension = path.extname(filePath).toLowerCase();
   if ([".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".bmp", ".ico"].includes(extension)) {
@@ -502,8 +502,8 @@ export function classifyFeishuAttachment(filePath: string): {
   if ([".ppt", ".pptx"].includes(extension)) {
     return { kind: "file", uploadFileType: "ppt", messageFileType: "file" };
   }
-  if ([".opus", ".mp3", ".wav", ".m4a"].includes(extension)) {
-    return { kind: "file", uploadFileType: "opus", messageFileType: "mp3" };
+  if ([".mp3", ".opus", ".wav", ".m4a"].includes(extension)) {
+    return { kind: "file", uploadFileType: "stream", messageFileType: "file" };
   }
 
   return { kind: "file", uploadFileType: "stream", messageFileType: "file" };
@@ -511,7 +511,7 @@ export function classifyFeishuAttachment(filePath: string): {
 
 export function buildFeishuFileMessageContent(
   fileKey: string,
-  fileType: "file" | "pdf" | "mp3" | "video",
+  fileType: "file" | "pdf" | "video",
   fileName: string,
 ): string {
   return JSON.stringify({
