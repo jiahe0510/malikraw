@@ -1,5 +1,5 @@
 import type { ProviderProfile } from "../providers/compatibility-profile.js";
-import type { StoredChannelConfig, StoredMemoryConfig } from "./config-store.js";
+import type { StoredAgentCard, StoredChannelConfig, StoredMemoryConfig } from "./config-store.js";
 import { loadConfigBundle } from "./config-store.js";
 import { getWorkspaceRoot } from "../../runtime/workspace-context.js";
 import type { MemoryConfig } from "../../memory/types.js";
@@ -20,6 +20,7 @@ export type RuntimeConfig = {
   channels: StoredChannelConfig[];
   defaultAgentId: string;
   agents: RuntimeAgentConfig[];
+  agentCards: RuntimeAgentCard[];
   globalPolicy: string;
   stateSummary?: string;
   memorySummary?: string;
@@ -33,6 +34,18 @@ export type RuntimeAgentConfig = {
   id: string;
   model: OpenAICompatibleConfig;
   activeSkillIds: string[];
+};
+
+export type RuntimeAgentCard = {
+  agentId: string;
+  description: string;
+  taskKinds: string[];
+  capabilities: string[];
+  constraints?: {
+    maxDurationSec?: number;
+    maxInputChars?: number;
+    costTier?: "low" | "medium" | "high";
+  };
 };
 
 export function loadRuntimeConfig(): RuntimeConfig {
@@ -58,6 +71,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
     channels: normalizeChannels(stored.channels?.channels),
     defaultAgentId,
     agents,
+    agentCards: normalizeAgentCards(stored.agentCards?.agents, agents),
     globalPolicy: stored.system?.globalPolicy
       ?? "Operate as a careful agent runtime. Prefer using tools over guessing. Be explicit about uncertainty.",
     stateSummary: stored.system?.stateSummary,
@@ -229,4 +243,26 @@ function normalizeMemoryConfig(stored: StoredMemoryConfig | undefined): MemoryCo
     maxPromptChars: stored.maxPromptChars ?? 2000,
     importanceThreshold: stored.importanceThreshold ?? 0.65,
   };
+}
+
+function normalizeAgentCards(
+  storedCards: StoredAgentCard[] | undefined,
+  agents: RuntimeAgentConfig[],
+): RuntimeAgentCard[] {
+  if (storedCards && storedCards.length > 0) {
+    return storedCards.map((card) => ({
+      agentId: card.agentId,
+      description: card.description,
+      taskKinds: card.taskKinds ?? [],
+      capabilities: card.capabilities ?? [],
+      constraints: card.constraints,
+    }));
+  }
+
+  return agents.map((agent) => ({
+    agentId: agent.id,
+    description: `Worker agent ${agent.id}.`,
+    taskKinds: [],
+    capabilities: [],
+  }));
 }

@@ -9,6 +9,148 @@ Minimal agent runtime with:
 - channel-based gateway routing
 - explicit message/media dispatch tool
 - enhanced memory with Redis + Postgres
+- experimental A2A orchestration primitives for async root/step workflows
+
+## Experimental A2A Orchestration
+
+The repository now includes a minimal async orchestration layer under `src/a2a/`.
+
+Current scope:
+
+- `A2AOrchestrator` for root-task and step-task state transitions
+- `StepWorkerRuntime` for dumb async workers that only execute assignments and emit events
+- `InMemoryTaskStore` and `InMemoryEventBus` for single-process prototyping
+- `FileArtifactStore` for durable large-result handoff via `outputRef`
+
+This layer is intentionally separate from the synchronous `runtime.ask() -> runAgentLoop()` path. The intended model is:
+
+- main agent acts as the only orchestrator
+- sub-agents receive `step.assignment`
+- workers emit `step.started`, `step.progress`, `step.completed`, `step.failed`
+- orchestration decides whether to enqueue follow-up steps such as `A -> B`
+
+When the gateway server starts, it now also exposes experimental task APIs:
+
+- `POST /api/tasks`
+- `POST /api/tasks/plan-and-run`
+- `GET /api/tasks`
+- `GET /api/tasks/:id`
+- `GET /api/tasks/:id/steps`
+- `GET /api/tasks/:id/events`
+
+These APIs use:
+
+- file-backed task store under `~/.malikraw/.runtime/a2a/`
+- in-memory event bus
+- one worker per configured agent id
+- optional `agent-cards.json` for AI routing
+
+No extra config file is required for the current prototype. The configured `agents[]` entries are reused as worker ids.
+If `agent-cards.json` is present, the orchestrator uses it for task-kind routing and injects each assigned worker's own card into the worker prompt.
+
+Example `agent-cards.json`:
+
+```json
+{
+  "agents": [
+    {
+      "agentId": "main",
+      "description": "Workflow orchestrator that plans and routes async tasks.",
+      "taskKinds": ["route_tasks", "plan_workflow"],
+      "capabilities": ["routing", "planning"]
+    },
+    {
+      "agentId": "sub-a",
+      "description": "Analyze repositories and identify implementation issues.",
+      "taskKinds": ["analyze_repo", "inspect_codebase"],
+      "capabilities": ["repo_scan", "code_analysis", "bug_finding"]
+    },
+    {
+      "agentId": "sub-b",
+      "description": "Summarize findings into concise user-facing reports.",
+      "taskKinds": ["summarize_findings", "write_report"],
+      "capabilities": ["summarization", "report_writing"]
+    }
+  ]
+}
+```
+
+Minimal example:
+
+```bash
+curl -X POST http://127.0.0.1:5050/api/tasks \
+  -H 'content-type: application/json' \
+  -d '{
+    "input": {
+      "query": "Analyze this repo and produce a summary"
+    },
+    "workflow": {
+      "transitions": [
+        {
+          "on": "analyze",
+          "when": { "path": "needB", "equals": true },
+          "createStep": {
+            "stepName": "sub-b",
+            "taskKind": "summarize_findings",
+            "requiredCapabilities": ["report_writing"],
+            "workflowNodeId": "summarize",
+            "inputFromOutputPath": "payloadForB"
+          }
+        }
+      ]
+    },
+    "initialStep": {
+      "stepName": "sub-a",
+      "agentId": "sub-a",
+      "workflowNodeId": "analyze",
+      "input": {
+        "userRequest": "Analyze the repo. Return strict JSON with fields needB, payloadForB, and finalOutput when applicable."
+      }
+    }
+  }'
+```
+
+Query status:
+
+```bash
+curl http://127.0.0.1:5050/api/tasks
+curl http://127.0.0.1:5050/api/tasks/<rootTaskId>
+curl http://127.0.0.1:5050/api/tasks/<rootTaskId>/steps
+curl http://127.0.0.1:5050/api/tasks/<rootTaskId>/events
+```
+
+Natural-language planning example:
+
+```bash
+curl -X POST http://127.0.0.1:5050/api/tasks/plan-and-run \
+  -H 'content-type: application/json' \
+  -d '{
+    "request": "Analyze the current repository, and if you find important issues, produce a concise final summary."
+  }'
+```
+
+Task runtime files are stored under:
+
+- `~/.malikraw/.runtime/a2a/roots/<rootTaskId>/root.json`
+- `~/.malikraw/.runtime/a2a/roots/<rootTaskId>/steps/*.json`
+- `~/.malikraw/.runtime/a2a/roots/<rootTaskId>/events.json`
+- `~/.malikraw/.runtime/a2a/roots/<rootTaskId>/chain.ndjson`
+- `~/.malikraw/.runtime/a2a/artifacts/...`
+
+Worker step input currently accepts either:
+
+- a plain string, treated as `userRequest`
+- an object containing `userRequest` or `prompt`
+
+If an agent returns valid JSON text, the worker stores it as structured output. Otherwise the raw text is used as the step output.
+
+Routing rules:
+
+- if `createStep.agentId` is present, that agent is used directly
+- otherwise `createStep.taskKind` is required
+- the router first scores candidate agent cards by `taskKinds` and `requiredCapabilities`
+- if one candidate wins clearly, routing is rule-based
+- if multiple candidates tie, the orchestrator asks the router model to choose from those candidate cards and return strict JSON
 
 ## Requirements
 
@@ -257,6 +399,18 @@ The current system does not yet do:
 
 ```bash
 malikraw tui
+```
+
+The TUI now supports A2A task commands in addition to chat:
+
+```text
+/task help
+/task list
+/task run <natural language>
+/task get <rootTaskId>
+/task steps <rootTaskId>
+/task events <rootTaskId>
+/task create <json>
 ```
 
 The TUI registers itself as the `tui` channel and keeps a local in-memory session.

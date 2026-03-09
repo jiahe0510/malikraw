@@ -91,6 +91,22 @@ export type StoredAgentsConfig = {
   agents: StoredAgentConfig[];
 };
 
+export type StoredAgentCard = {
+  agentId: string;
+  description: string;
+  taskKinds: string[];
+  capabilities: string[];
+  constraints?: {
+    maxDurationSec?: number;
+    maxInputChars?: number;
+    costTier?: "low" | "medium" | "high";
+  };
+};
+
+export type StoredAgentCardsConfig = {
+  agents: StoredAgentCard[];
+};
+
 export type MalikrawConfigBundle = {
   system?: StoredSystemConfig;
   providers?: StoredProvidersConfig;
@@ -99,6 +115,7 @@ export type MalikrawConfigBundle = {
   channels?: StoredChannelsConfig;
   tools?: StoredToolsConfig;
   agents?: StoredAgentsConfig;
+  agentCards?: StoredAgentCardsConfig;
   memory?: StoredMemoryConfig;
 };
 
@@ -125,20 +142,40 @@ export function loadConfigBundle(): MalikrawConfigBundle {
     channels: readJsonFile<StoredChannelsConfig>("channels.json"),
     tools: readJsonFile<StoredToolsConfig>("tools.json"),
     agents: readJsonFile<StoredAgentsConfig>("agents.json"),
+    agentCards: readJsonFile<StoredAgentCardsConfig>("agent-cards.json"),
     memory: readJsonFile<StoredMemoryConfig>("memory.json"),
   };
 }
 
-export function saveConfigBundle(bundle: Required<MalikrawConfigBundle>): void {
+export function saveConfigBundle(bundle: MalikrawConfigBundle): void {
   ensureConfigDirectory();
-  writeJsonFile("system.json", bundle.system);
-  writeJsonFile("providers.json", bundle.providers);
-  writeJsonFile("agent-provider-mapping.json", bundle.agentProviderMapping);
-  writeJsonFile("workspace.json", bundle.workspace);
-  writeJsonFile("channels.json", bundle.channels);
-  writeJsonFile("tools.json", bundle.tools);
-  writeJsonFile("agents.json", bundle.agents);
-  writeJsonFile("memory.json", bundle.memory);
+  if (bundle.system) {
+    writeJsonFile("system.json", bundle.system);
+  }
+  if (bundle.providers) {
+    writeJsonFile("providers.json", bundle.providers);
+  }
+  if (bundle.agentProviderMapping) {
+    writeJsonFile("agent-provider-mapping.json", bundle.agentProviderMapping);
+  }
+  if (bundle.workspace) {
+    writeJsonFile("workspace.json", bundle.workspace);
+  }
+  if (bundle.channels) {
+    writeJsonFile("channels.json", bundle.channels);
+  }
+  if (bundle.tools) {
+    writeJsonFile("tools.json", bundle.tools);
+  }
+  if (bundle.agents) {
+    writeJsonFile("agents.json", bundle.agents);
+  }
+  if (bundle.agentCards) {
+    writeJsonFile("agent-cards.json", bundle.agentCards);
+  }
+  if (bundle.memory) {
+    writeJsonFile("memory.json", bundle.memory);
+  }
 }
 
 function getConfigFilePath(fileName: string): string {

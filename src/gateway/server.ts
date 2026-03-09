@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 
+import { createA2ATaskService } from "../a2a/index.js";
 import { loadRuntimeConfig } from "../core/config/agent-config.js";
 import type { RuntimeConfig } from "../core/config/agent-config.js";
 import { createAgentRuntime } from "../runtime/create-agent-runtime.js";
@@ -20,6 +21,7 @@ export async function startGatewayServer(config: RuntimeConfig): Promise<void> {
     (agentId) => requireRuntime(agentId ?? config.defaultAgentId, runtimes),
     new FileBackedSessionStore(),
   );
+  const taskApi = createA2ATaskService(config, runtimes);
   const channels = createConfiguredChannels(config);
   for (const channel of channels) {
     gateway.registerChannel(channel);
@@ -86,6 +88,49 @@ export async function startGatewayServer(config: RuntimeConfig): Promise<void> {
         });
       }
 
+      if (request.method === "POST" && request.url === "/api/tasks") {
+        const body = await readJsonBody(request);
+        const task = await taskApi.createTask(body);
+        return sendJson(response, 200, task);
+      }
+
+      if (request.method === "POST" && request.url === "/api/tasks/plan-and-run") {
+        const body = await readJsonBody(request);
+        const requestText = typeof body.request === "string" ? body.request.trim() : "";
+        if (!requestText) {
+          return sendJson(response, 400, { error: 'Field "request" is required.' });
+        }
+        const task = await taskApi.planAndCreateTask(requestText);
+        return sendJson(response, 200, task);
+      }
+
+      if (request.method === "GET" && request.url === "/api/tasks") {
+        const tasks = await taskApi.listTasks();
+        return sendJson(response, 200, { ok: true, tasks });
+      }
+
+      const taskRoute = matchTaskRoute(request.url);
+      if (request.method === "GET" && taskRoute) {
+        if (taskRoute.kind === "task") {
+          const task = await taskApi.getTask(taskRoute.rootTaskId);
+          return task
+            ? sendJson(response, 200, { ok: true, task })
+            : sendJson(response, 404, { error: `Task "${taskRoute.rootTaskId}" not found.` });
+        }
+
+        if (taskRoute.kind === "steps") {
+          const steps = await taskApi.listSteps(taskRoute.rootTaskId);
+          return steps
+            ? sendJson(response, 200, { ok: true, rootTaskId: taskRoute.rootTaskId, steps })
+            : sendJson(response, 404, { error: `Task "${taskRoute.rootTaskId}" not found.` });
+        }
+
+        const events = await taskApi.listEvents(taskRoute.rootTaskId);
+        return events
+          ? sendJson(response, 200, { ok: true, rootTaskId: taskRoute.rootTaskId, events })
+          : sendJson(response, 404, { error: `Task "${taskRoute.rootTaskId}" not found.` });
+      }
+
       return sendJson(response, 404, { error: "Not found." });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -117,6 +162,11 @@ async function createAgentRuntimeMap(config: RuntimeConfig): Promise<Map<string,
   return runtimes;
 }
 
+type TaskRoute =
+  | { kind: "task"; rootTaskId: string }
+  | { kind: "steps"; rootTaskId: string }
+  | { kind: "events"; rootTaskId: string };
+
 function requireRuntime(
   agentId: string,
   runtimes: Map<string, Awaited<ReturnType<typeof createAgentRuntime>>>,
@@ -136,6 +186,24 @@ function resolveChannelAgent(config: RuntimeConfig, channelId: string): string {
 
 function describeChannel(config: RuntimeConfig, channelId: string): string {
   return config.channels.find((channel) => channel.id === channelId)?.type ?? "unknown";
+}
+
+function matchTaskRoute(url: string): TaskRoute | undefined {
+  const pathname = url.split("?")[0] ?? "";
+  const match = /^\/api\/tasks\/([^/]+)(?:\/(steps|events))?$/.exec(pathname);
+  if (!match) {
+    return undefined;
+  }
+
+  const rootTaskId = decodeURIComponent(match[1] ?? "");
+  const suffix = match[2];
+  if (!suffix) {
+    return { kind: "task", rootTaskId };
+  }
+  if (suffix === "steps") {
+    return { kind: "steps", rootTaskId };
+  }
+  return { kind: "events", rootTaskId };
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
