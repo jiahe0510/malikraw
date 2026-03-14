@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { loadRuntimeConfig } from "../core/config/agent-config.js";
 import {
   loadConfigBundle,
@@ -140,13 +142,33 @@ async function collectProvider(existingProvider: StoredProviderConfig | undefine
     apiKey: await promptText("Provider API key", existingProvider?.apiKey || "dummy"),
     model: await promptText("Model name", existingProvider?.model || defaultModelForProfile(profile)),
     profile,
-    temperature: 0.2,
-    contextWindow: existingProvider?.contextWindow ?? 32768,
-    maxTokens: 4096,
+    temperature: await promptOptionalNumber(
+      "Temperature",
+      String(existingProvider?.temperature ?? 0.2),
+    ) ?? 0.2,
+    contextWindow: await promptRequiredNumber(
+      "Context window",
+      String(existingProvider?.contextWindow ?? 32768),
+    ),
+    maxTokens: await promptRequiredNumber(
+      "Max output tokens",
+      String(existingProvider?.maxTokens ?? 4096),
+    ),
     compact: {
-      thresholdTokens: existingProvider?.compact?.thresholdTokens,
-      targetTokens: existingProvider?.compact?.targetTokens,
-      instructionPath: existingProvider?.compact?.instructionPath,
+      thresholdTokens: await promptRequiredNumber(
+        "Compact threshold tokens",
+        String(existingProvider?.compact?.thresholdTokens ?? 12000),
+      ),
+      targetTokens: await promptRequiredNumber(
+        "Compact target tokens",
+        String(existingProvider?.compact?.targetTokens ?? 7200),
+      ),
+      instructionPath: emptyToUndefined(
+        await promptText(
+          "Compact instruction path",
+          existingProvider?.compact?.instructionPath || path.join(getWorkspaceRoot(), "COMPACT.md"),
+        ),
+      ),
     },
   });
 }

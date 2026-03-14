@@ -19,6 +19,7 @@ import {
   getSkillsDirectory,
   getWorkspaceRoot,
   readWorkspaceAgentFile,
+  readWorkspaceCompactFile,
   readWorkspaceIdentityFile,
   readWorkspaceMemoryFile,
   readWorkspacePersonalityFile,
@@ -71,6 +72,7 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         ?? await readBundledPersonalityFile();
       const agentSystemContent = await readWorkspaceAgentFile();
       const memorySystemContent = await readWorkspaceMemoryFile();
+      const compactInstructionContent = await readWorkspaceCompactFile();
       const resolvedAgentId = agentId ?? "default";
       const resolvedUserId = userId ?? sessionId ?? "anonymous";
       const resolvedSessionId = sessionId ?? "default";
@@ -88,6 +90,7 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
       const compaction = await compactContextIfNeeded({
         model,
         modelConfig: config.model,
+        compactInstructionContent,
         globalPolicy: config.globalPolicy,
         identitySystemContent,
         personalitySystemContent,

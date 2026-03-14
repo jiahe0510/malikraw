@@ -10,6 +10,7 @@ const SAFETY_MARGIN_TOKENS = 1024;
 export type ContextCompactionInput = {
   model: AgentModel;
   modelConfig: OpenAICompatibleConfig;
+  compactInstructionContent?: string;
   globalPolicy: string;
   identitySystemContent?: string;
   personalitySystemContent?: string;
@@ -103,7 +104,7 @@ async function summarizeHistory(input: ContextCompactionInput, messages: AgentMe
     return "";
   }
 
-  const guidance = await loadCompactionInstruction(input.modelConfig.compact.instructionPath);
+  const guidance = await loadCompactionInstruction(input.compactInstructionContent, input.modelConfig.compact.instructionPath);
   const renderedHistory = renderCompactedHistory(messages);
 
   try {
@@ -133,7 +134,14 @@ async function summarizeHistory(input: ContextCompactionInput, messages: AgentMe
   return renderCompactedHistory(messages);
 }
 
-async function loadCompactionInstruction(configuredPath: string | undefined): Promise<string> {
+async function loadCompactionInstruction(
+  inlineContent: string | undefined,
+  configuredPath: string | undefined,
+): Promise<string> {
+  if (inlineContent?.trim()) {
+    return inlineContent.trim();
+  }
+
   if (configuredPath?.trim()) {
     const content = await readFile(configuredPath.trim(), "utf8");
     return content.trim();

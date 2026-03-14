@@ -8,10 +8,12 @@ import {
   clearWorkspaceRoot,
   ensureWorkspaceInitialized,
   getWorkspaceAgentFilePath,
+  getWorkspaceCompactFilePath,
   getWorkspaceIdentityFilePath,
   getWorkspaceMemoryFilePath,
   getWorkspacePersonalityFilePath,
   readWorkspaceAgentFile,
+  readWorkspaceCompactFile,
   readWorkspaceIdentityFile,
   readWorkspaceMemoryFile,
   readWorkspacePersonalityFile,
@@ -86,6 +88,24 @@ test("workspace initialization seeds MEMORY.md", async () => {
     assert.match(content ?? "", /# MEMORY\.md/);
     assert.match(content ?? "", /durable user-specific memory/);
     assert.match(content ?? "", /workspace file tools/);
+  } finally {
+    clearWorkspaceRoot();
+  }
+});
+
+test("workspace initialization seeds COMPACT.md", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "malikraw-workspace-"));
+  setWorkspaceRoot(workspace);
+
+  try {
+    await ensureWorkspaceInitialized();
+
+    const fileInfo = await stat(getWorkspaceCompactFilePath());
+    assert.equal(fileInfo.isFile(), true);
+
+    const content = await readWorkspaceCompactFile();
+    assert.match(content ?? "", /# Conversation Compaction Guide/);
+    assert.match(content ?? "", /Never rewrite or summarize the system prompt/);
   } finally {
     clearWorkspaceRoot();
   }

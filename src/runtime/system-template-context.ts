@@ -31,5 +31,5 @@ export async function readDefaultMemoryTemplateFile(): Promise<string | undefine
 }
 
 export async function readCompactTemplateFile(): Promise<string | undefined> {
-  return readSystemTemplateFile("compact.md");
+  return readSystemTemplateFile("COMPACT.md");
 }

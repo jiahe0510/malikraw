@@ -247,6 +247,7 @@ When runtime compaction triggers:
 - older history is compressed into a synthetic `user` message starting with `[compacted_history]`
 - recent history is kept
 - recent history is aligned to a `user` boundary
+- compaction guidance is read from workspace `COMPACT.md` by default
 - important compacted information is also written into episodic memory
 - if embeddings are enabled, that compacted summary is stored with a vector and becomes retrievable through episodic recall
 
