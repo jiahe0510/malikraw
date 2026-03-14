@@ -13,6 +13,8 @@ const FEISHU_CHAT_ID = "feishuChatId";
 const FEISHU_THREAD_ID = "feishuThreadId";
 const FEISHU_DEDUP_TTL_MS = 5 * 60 * 1000;
 const FEISHU_DEDUP_MAX_SIZE = 2000;
+const FEISHU_RETRY_ATTEMPTS = 3;
+const FEISHU_RETRY_DELAY_MS = 300;
 
 type FeishuReceiveMessageEvent = {
   sender: {
@@ -129,18 +131,28 @@ export class FeishuChannel implements GatewayChannel {
       console.log(
         `[channel:feishu] replying id=${this.id} mode=${replyMode} format=${payload.msgType} agent=${session.agentId ?? "default"} session=${session.sessionId} replyMessageId=${replyMessageId}`,
       );
-      const response = await this.client.im.message.reply({
-        path: {
-          message_id: replyMessageId,
-        },
-        data: {
-          content: payload.content,
-          msg_type: payload.msgType,
-          reply_in_thread: replyMode === "thread",
-        },
-      });
-      logFeishuApiResult("message.reply", response);
-      return;
+      try {
+        const response = await withFeishuRetry(
+          "message.reply",
+          () => this.client.im.message.reply({
+            path: {
+              message_id: replyMessageId,
+            },
+            data: {
+              content: payload.content,
+              msg_type: payload.msgType,
+              reply_in_thread: replyMode === "thread",
+            },
+          }),
+        );
+        logFeishuApiResult("message.reply", response);
+        return;
+      } catch (error) {
+        console.warn(
+          `[channel:feishu] reply failed id=${this.id} agent=${session.agentId ?? "default"} session=${session.sessionId} replyMessageId=${replyMessageId}; falling back to message.create`,
+          formatFeishuError(error),
+        );
+      }
     }
 
     if (!chatId) {
@@ -150,16 +162,19 @@ export class FeishuChannel implements GatewayChannel {
     console.log(
       `[channel:feishu] sending id=${this.id} mode=chat format=${payload.msgType} agent=${session.agentId ?? "default"} session=${session.sessionId} chatId=${chatId}`,
     );
-    const response = await this.client.im.message.create({
-      params: {
-        receive_id_type: "chat_id",
-      },
-      data: {
-        receive_id: chatId,
-        content: payload.content,
-        msg_type: payload.msgType,
-      },
-    });
+    const response = await withFeishuRetry(
+      "message.create",
+      () => this.client.im.message.create({
+        params: {
+          receive_id_type: "chat_id",
+        },
+        data: {
+          receive_id: chatId,
+          content: payload.content,
+          msg_type: payload.msgType,
+        },
+      }),
+    );
     logFeishuApiResult("message.create", response);
   }
 
@@ -176,12 +191,15 @@ export class FeishuChannel implements GatewayChannel {
       `[channel:feishu] attachment id=${this.id} agent=${input.session.agentId ?? "default"} session=${input.session.sessionId} path=${input.media.path} kind=${attachment.kind}`,
     );
     if (attachment.kind === "image") {
-      const uploaded = await this.client.im.image.create({
-        data: {
-          image_type: "message",
-          image: createReadStream(input.media.path),
-        },
-      });
+      const uploaded = await withFeishuRetry(
+        "image.create",
+        () => this.client.im.image.create({
+          data: {
+            image_type: "message",
+            image: createReadStream(input.media.path),
+          },
+        }),
+      );
       logFeishuApiResult("image.create", uploaded);
       if (!uploaded?.image_key) {
         throw new Error(`Failed to upload image attachment: ${input.media.path}`);
@@ -221,17 +239,20 @@ export class FeishuChannel implements GatewayChannel {
     fileName: string,
   ): Promise<{ file_key?: string | undefined } | null> {
     try {
-      const response = await this.client.im.file.create({
-        data: {
-          file_type: fileType,
-          file_name: fileName,
-        },
-        files: {
-          file: {
-            path: attachmentPath,
+      const response = await withFeishuRetry(
+        "file.create",
+        () => this.client.im.file.create({
+          data: {
+            file_type: fileType,
+            file_name: fileName,
           },
-        },
-      } as never);
+          files: {
+            file: {
+              path: attachmentPath,
+            },
+          },
+        } as never),
+      );
       logFeishuApiResult("file.create", response);
       return response;
     } catch (error) {
@@ -239,13 +260,16 @@ export class FeishuChannel implements GatewayChannel {
         `[channel:feishu] path upload failed id=${this.id} path=${attachmentPath} fileType=${fileType}; falling back to stream upload`,
         formatFeishuError(error),
       );
-      const response = await this.client.im.file.create({
-        data: {
-          file_type: fileType,
-          file_name: fileName,
-          file: createReadStream(attachmentPath),
-        },
-      } as never);
+      const response = await withFeishuRetry(
+        "file.create",
+        () => this.client.im.file.create({
+          data: {
+            file_type: fileType,
+            file_name: fileName,
+            file: createReadStream(attachmentPath),
+          },
+        } as never),
+      );
       logFeishuApiResult("file.create", response);
       return response;
     }
@@ -264,16 +288,19 @@ export class FeishuChannel implements GatewayChannel {
     console.log(
       `[channel:feishu] sending attachment id=${this.id} mode=${target.receiveIdType} format=${input.payload.msgType} agent=${input.session.agentId ?? "default"} session=${input.session.sessionId} target=${target.receiveId}`,
     );
-    const response = await this.client.im.message.create({
-      params: {
-        receive_id_type: target.receiveIdType,
-      },
-      data: {
-        receive_id: target.receiveId,
-        msg_type: input.payload.msgType,
-        content: input.payload.content,
-      },
-    });
+    const response = await withFeishuRetry(
+      "message.create",
+      () => this.client.im.message.create({
+        params: {
+          receive_id_type: target.receiveIdType,
+        },
+        data: {
+          receive_id: target.receiveId,
+          msg_type: input.payload.msgType,
+          content: input.payload.content,
+        },
+      }),
+    );
     logFeishuApiResult("message.create", response);
   }
 
@@ -320,16 +347,41 @@ export class FeishuChannel implements GatewayChannel {
 
   private async replyToEvent(data: FeishuReceiveMessageEvent, content: string): Promise<void> {
     const payload = buildFeishuOutboundPayload(this.config, content);
-    await this.client.im.message.reply({
-      path: {
-        message_id: data.message.message_id,
-      },
-      data: {
-        content: payload.content,
-        msg_type: payload.msgType,
-        reply_in_thread: resolveReplyMode(this.config) === "thread",
-      },
-    });
+    try {
+      const response = await withFeishuRetry(
+        "message.reply",
+        () => this.client.im.message.reply({
+          path: {
+            message_id: data.message.message_id,
+          },
+          data: {
+            content: payload.content,
+            msg_type: payload.msgType,
+            reply_in_thread: resolveReplyMode(this.config) === "thread",
+          },
+        }),
+      );
+      logFeishuApiResult("message.reply", response);
+    } catch (error) {
+      console.warn(
+        `[channel:feishu] replyToEvent failed id=${this.id} messageId=${data.message.message_id} chatId=${data.message.chat_id}`,
+        formatFeishuError(error),
+      );
+      const response = await withFeishuRetry(
+        "message.create",
+        () => this.client.im.message.create({
+          params: {
+            receive_id_type: "chat_id",
+          },
+          data: {
+            receive_id: data.message.chat_id,
+            content: payload.content,
+            msg_type: payload.msgType,
+          },
+        }),
+      );
+      logFeishuApiResult("message.create", response);
+    }
   }
 
   private shouldHandleMessage(messageId: string): boolean {
@@ -583,6 +635,60 @@ function formatFeishuError(error: unknown): string {
   }
 
   return parts.join(" ");
+}
+
+export function isRetryableFeishuError(error: unknown): boolean {
+  const candidate = error as {
+    code?: string;
+    message?: string;
+    response?: { status?: number };
+  } | undefined;
+  const code = candidate?.code?.toUpperCase();
+  const message = candidate?.message?.toUpperCase() ?? "";
+  const status = candidate?.response?.status;
+
+  if (status !== undefined && status >= 500) {
+    return true;
+  }
+
+  return code === "ECONNRESET"
+    || code === "ETIMEDOUT"
+    || code === "ECONNABORTED"
+    || code === "EPIPE"
+    || message.includes("ECONNRESET")
+    || message.includes("ETIMEDOUT")
+    || message.includes("SOCKET HANG UP");
+}
+
+async function withFeishuRetry<T>(
+  action: string,
+  operation: () => Promise<T>,
+  attempts = FEISHU_RETRY_ATTEMPTS,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const retryable = isRetryableFeishuError(error);
+      console.warn(
+        `[channel:feishu] ${action} failed attempt=${attempt}/${attempts} retryable=${retryable}`,
+        formatFeishuError(error),
+      );
+      if (!retryable || attempt === attempts) {
+        throw error;
+      }
+      await sleep(FEISHU_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  throw lastError;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function deduplicateAttachmentPaths(paths: string[]): string[] {

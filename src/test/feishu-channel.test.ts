@@ -9,6 +9,7 @@ import {
   buildFeishuFileMessageContent,
   classifyFeishuAttachment,
   extractFeishuText,
+  isRetryableFeishuError,
   parseFeishuDeliveryContent,
   rememberMessageId,
   toChannelInboundMessage,
@@ -154,4 +155,11 @@ test("parseFeishuDeliveryContent supports explicit feishu attachment directives"
   } finally {
     clearWorkspaceRoot();
   }
+});
+
+test("isRetryableFeishuError treats transient network failures as retryable", () => {
+  assert.equal(isRetryableFeishuError({ code: "ECONNRESET", message: "read ECONNRESET" }), true);
+  assert.equal(isRetryableFeishuError({ code: "ETIMEDOUT", message: "timeout" }), true);
+  assert.equal(isRetryableFeishuError({ response: { status: 502 }, message: "bad gateway" }), true);
+  assert.equal(isRetryableFeishuError({ code: "EINVAL", message: "bad request" }), false);
 });
