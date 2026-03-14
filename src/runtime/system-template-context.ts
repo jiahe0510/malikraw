@@ -29,3 +29,7 @@ export async function readDefaultIdentityTemplateFile(): Promise<string | undefi
 export async function readDefaultMemoryTemplateFile(): Promise<string | undefined> {
   return readSystemTemplateFile("MEMORY.md");
 }
+
+export async function readCompactTemplateFile(): Promise<string | undefined> {
+  return readSystemTemplateFile("compact.md");
+}

@@ -10,7 +10,13 @@ export type OpenAICompatibleConfig = {
   model: string;
   profile?: ProviderProfile;
   temperature?: number;
+  contextWindow: number;
   maxTokens?: number;
+  compact: {
+    thresholdTokens: number;
+    targetTokens: number;
+    instructionPath?: string;
+  };
 };
 
 export type RuntimeConfig = {
@@ -48,8 +54,16 @@ export function loadRuntimeConfig(): RuntimeConfig {
       apiKey: providerConfig.apiKey ?? "dummy",
       model: requireStoredValue(providerConfig.model, "providers[].model"),
       profile: providerConfig.profile,
-      temperature: 0.2,
-      maxTokens: 4096,
+      temperature: providerConfig.temperature ?? 0.2,
+      contextWindow: providerConfig.contextWindow ?? 32_768,
+      maxTokens: providerConfig.maxTokens ?? 4096,
+      compact: {
+        thresholdTokens: providerConfig.compact?.thresholdTokens
+          ?? defaultCompactThreshold(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
+        targetTokens: providerConfig.compact?.targetTokens
+          ?? defaultCompactTarget(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
+        instructionPath: providerConfig.compact?.instructionPath?.trim() || undefined,
+      },
     },
     workspaceRoot: stored.workspace?.workspaceRoot || getWorkspaceRoot(),
     activeSkillIds: agentConfig?.activeSkillIds?.length
@@ -183,16 +197,40 @@ function toModelConfig(providerConfig: {
   model: string;
   profile?: ProviderProfile;
   temperature?: number;
+  contextWindow?: number;
   maxTokens?: number;
+  compact?: {
+    thresholdTokens?: number;
+    targetTokens?: number;
+    instructionPath?: string;
+  };
 }): OpenAICompatibleConfig {
+  const contextWindow = providerConfig.contextWindow ?? 32_768;
+  const maxTokens = providerConfig.maxTokens ?? 4096;
   return {
     baseURL: requireStoredValue(providerConfig.baseURL, "providers[].baseURL"),
     apiKey: providerConfig.apiKey ?? "dummy",
     model: requireStoredValue(providerConfig.model, "providers[].model"),
     profile: providerConfig.profile,
-    temperature: 0.2,
-    maxTokens: 4096,
+    temperature: providerConfig.temperature ?? 0.2,
+    contextWindow,
+    maxTokens,
+    compact: {
+      thresholdTokens: providerConfig.compact?.thresholdTokens
+        ?? defaultCompactThreshold(contextWindow, maxTokens),
+      targetTokens: providerConfig.compact?.targetTokens
+        ?? defaultCompactTarget(contextWindow, maxTokens),
+      instructionPath: providerConfig.compact?.instructionPath?.trim() || undefined,
+    },
   };
+}
+
+function defaultCompactThreshold(contextWindow: number, maxTokens: number): number {
+  return Math.min(12_000, Math.max(1024, contextWindow - maxTokens - 1024));
+}
+
+function defaultCompactTarget(contextWindow: number, maxTokens: number): number {
+  return Math.max(768, Math.floor(defaultCompactThreshold(contextWindow, maxTokens) * 0.6));
 }
 
 function normalizeMemoryConfig(stored: StoredMemoryConfig | undefined): MemoryConfig | undefined {

@@ -60,7 +60,7 @@ Current onboarding defaults:
 
 - one agent only: `main`
 - workspace is fixed to `~/.malikraw/workspace`
-- model generation defaults are fixed to `temperature=0.2`, `maxTokens=4096`
+- model generation defaults are `temperature=0.2`, `contextWindow=32768`, `maxTokens=4096`
 - HTTP channel is disabled by default
 - Feishu channel only requires `appId` and `appSecret`
 - skills / tools / channels are selected with space-toggle prompts
@@ -232,16 +232,23 @@ So the model gets:
 
 ### Current Memory Compression
 
-Current session-history compression is intentionally conservative.
+Current session-history compression now has two layers:
 
-When session history grows too large:
+- gateway/session-store compaction
+  - conservative fallback based on message count and char size
+- runtime prompt compaction
+  - provider-driven, based on estimated token budget
+  - uses `contextWindow`, `maxTokens`, and `compact.thresholdTokens`
+  - only compresses prior conversation history
+  - does not compress the system prompt
 
-- compaction triggers based on total history size
+When runtime compaction triggers:
+
 - older history is compressed into a synthetic `user` message starting with `[compacted_history]`
 - recent history is kept
 - recent history is aligned to a `user` boundary
-- long-term recent history keeps only `user` / `assistant` messages
-- `tool` messages are removed from recent history and folded into the compacted summary
+- important compacted information is also written into episodic memory
+- if embeddings are enabled, that compacted summary is stored with a vector and becomes retrievable through episodic recall
 
 This is designed to avoid prompt-template breakage in backends like LM Studio / Qwen while still preserving enough context for the next turn.
 

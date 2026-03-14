@@ -22,6 +22,11 @@ test("OpenAICompatibleModel strips <think> blocks from final output", async () =
       baseURL: "https://example.invalid/v1",
       apiKey: "dummy",
       model: "test-model",
+      contextWindow: 8192,
+      compact: {
+        thresholdTokens: 4096,
+        targetTokens: 2048,
+      },
     });
 
     const result = await model.generate({

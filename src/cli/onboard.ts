@@ -141,7 +141,13 @@ async function collectProvider(existingProvider: StoredProviderConfig | undefine
     model: await promptText("Model name", existingProvider?.model || defaultModelForProfile(profile)),
     profile,
     temperature: 0.2,
+    contextWindow: existingProvider?.contextWindow ?? 32768,
     maxTokens: 4096,
+    compact: {
+      thresholdTokens: existingProvider?.compact?.thresholdTokens,
+      targetTokens: existingProvider?.compact?.targetTokens,
+      instructionPath: existingProvider?.compact?.instructionPath,
+    },
   });
 }
 
@@ -373,7 +379,15 @@ function compactProviderConfig(provider: StoredProviderConfig): StoredProviderCo
   return {
     ...provider,
     temperature: provider.temperature,
+    contextWindow: provider.contextWindow,
     maxTokens: provider.maxTokens,
+    compact: provider.compact
+      ? {
+        thresholdTokens: provider.compact.thresholdTokens,
+        targetTokens: provider.compact.targetTokens,
+        instructionPath: provider.compact.instructionPath,
+      }
+      : undefined,
   };
 }
 

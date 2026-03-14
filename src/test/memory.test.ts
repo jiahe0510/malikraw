@@ -97,6 +97,45 @@ test("memory writer persists session state and deduplicated semantic memory", as
   assert.equal(semantic.length, 1);
 });
 
+test("memory writer stores compaction summaries as episodic memory", async () => {
+  const context = {
+    sessionId: "s2",
+    userId: "u2",
+    agentId: "a2",
+  };
+  const sessionStore = new InMemorySessionStateStore();
+  const semanticStore = new InMemorySemanticMemoryStore();
+  const episodicStore = new InMemoryEpisodicMemoryStore();
+  const writer = new MemoryWriter(
+    sessionStore,
+    semanticStore,
+    episodicStore,
+    { extract: async () => [] },
+    new HeuristicEpisodeExtractor(),
+    memoryConfig,
+  );
+
+  await writer.write({
+    context,
+    userMessage: "continue",
+    assistantResponse: "done",
+    toolResults: [],
+    sessionMessages: [
+      { role: "user", content: "continue" },
+      { role: "assistant", content: "done" },
+    ],
+    compaction: {
+      summary: "Goal: add provider compact config. Decisions: compress only history.",
+      messagesCompacted: 12,
+      estimatedTokens: 3000,
+    },
+  });
+
+  const episodes = await episodicStore.searchRelevant(context, "compress history", { limit: 10 });
+  assert.ok(episodes.some((episode) => episode.source === "history_compaction"));
+  assert.ok(episodes.some((episode) => /compress only history/i.test(episode.summary)));
+});
+
 test("memory retriever compiles session, semantic, and episodic memory into one block", async () => {
   const context = {
     sessionId: "s1",

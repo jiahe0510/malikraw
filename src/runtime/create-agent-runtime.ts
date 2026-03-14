@@ -11,6 +11,7 @@ import type { RuntimeConfig } from "../core/config/agent-config.js";
 import type { AgentMessage } from "../core/agent/types.js";
 import { createMemoryService } from "../memory/memory-service.js";
 import { runMemoryMigrations } from "../memory/migrate.js";
+import { compactContextIfNeeded } from "./context-compactor.js";
 import { readBundledPersonalityFile } from "./system-template-context.js";
 import type { MessageDispatch } from "../channels/channel.js";
 import {
@@ -84,6 +85,17 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         },
         query: userRequest,
       });
+      const compaction = await compactContextIfNeeded({
+        model,
+        modelConfig: config.model,
+        globalPolicy: config.globalPolicy,
+        identitySystemContent,
+        personalitySystemContent,
+        agentSystemContent,
+        memorySystemContent,
+        history,
+        userRequest,
+      });
       const result = await runAgentLoop({
         model,
         toolRegistry,
@@ -95,7 +107,7 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         agentSystemContent,
         memorySystemContent,
         userRequest,
-        history,
+        history: compaction.history,
         stateSummary: config.stateSummary,
         memorySummary: config.memorySummary,
         relevantMemoryBlock: retrievedMemory.compiledBlock,
@@ -117,6 +129,13 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         sessionMessages: result.messages.filter((message) =>
           message.role === "user" || message.role === "assistant"
         ),
+        compaction: compaction.summary
+          ? {
+            summary: compaction.summary,
+            messagesCompacted: compaction.messagesCompacted,
+            estimatedTokens: compaction.estimatedTokens.history,
+          }
+          : undefined,
       });
 
       return {

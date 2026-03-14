@@ -3,7 +3,7 @@ import type { ToolResultEnvelope } from "../core/tool-registry/types.js";
 
 export type MemoryScope = "session" | "project" | "global";
 export type MemoryItemType = "semantic" | "episode";
-export type MemorySource = "user_explicit" | "inferred" | "task_summary";
+export type MemorySource = "user_explicit" | "inferred" | "task_summary" | "history_compaction";
 export type ExtractedMemorySource = "explicit" | "inferred";
 
 export type SessionTaskState = {
@@ -75,6 +75,8 @@ export type EpisodicMemoryCandidate = {
   entities: string[];
   importance: number;
   confidence?: number;
+  source?: MemorySource;
+  content?: Record<string, unknown>;
 };
 
 export type ExtractedMemory = {
@@ -97,6 +99,11 @@ export type MemoryWriteInput = {
   toolResults: ToolResultEnvelope[];
   sessionMessages: AgentMessage[];
   currentTaskState?: SessionTaskState;
+  compaction?: {
+    summary: string;
+    messagesCompacted: number;
+    estimatedTokens: number;
+  };
 };
 
 export type MemoryRetrieveInput = {

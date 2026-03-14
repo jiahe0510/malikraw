@@ -41,6 +41,23 @@ export class MemoryWriter {
       episodeWritten = true;
     }
 
+    if (input.compaction?.summary.trim()) {
+      const compactionEpisode = {
+        summary: input.compaction.summary.trim(),
+        entities: ["compacted_history"],
+        importance: Math.max(this.config.importanceThreshold, 0.85),
+        confidence: 0.9,
+        source: "history_compaction" as const,
+        content: {
+          kind: "history_compaction",
+          messagesCompacted: input.compaction.messagesCompacted,
+          estimatedTokens: input.compaction.estimatedTokens,
+        },
+      };
+      const embedding = this.embedder ? await safeEmbed(this.embedder, compactionEpisode.summary) : undefined;
+      await this.episodicStore.insert(input.context, compactionEpisode, embedding);
+    }
+
     return {
       sessionState,
       semanticWritten,

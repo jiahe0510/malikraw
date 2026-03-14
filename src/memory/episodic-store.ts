@@ -31,8 +31,8 @@ export class InMemoryEpisodicMemoryStore implements EpisodicMemoryStore {
       entities: episode.entities,
       importance: episode.importance,
       confidence: episode.confidence ?? 0.75,
-      source: "task_summary",
-      content: {
+      source: episode.source ?? "task_summary",
+      content: episode.content ?? {
         entities: episode.entities,
       },
       embedding,
@@ -81,7 +81,7 @@ export class PostgresEpisodicMemoryStore implements EpisodicMemoryStore {
             importance, confidence, source
           ) VALUES (
             $1, $2, $3, 'episode', $4, $5, $6::jsonb, $7::jsonb, $8::vector,
-            $9, $10, 'task_summary'
+            $9, $10, $11
           )
         `,
         [
@@ -90,13 +90,14 @@ export class PostgresEpisodicMemoryStore implements EpisodicMemoryStore {
           context.agentId,
           context.projectId ? "project" : "session",
           episode.summary,
-          JSON.stringify({
+          JSON.stringify(episode.content ?? {
             entities: episode.entities,
           }),
           JSON.stringify(embedding),
           toVectorLiteral(embedding),
           episode.importance,
           episode.confidence ?? 0.75,
+          episode.source ?? "task_summary",
         ],
       );
       return;
@@ -109,7 +110,7 @@ export class PostgresEpisodicMemoryStore implements EpisodicMemoryStore {
           importance, confidence, source
         ) VALUES (
           $1, $2, $3, 'episode', $4, $5, $6::jsonb, $7::jsonb,
-          $8, $9, 'task_summary'
+          $8, $9, $10
         )
       `,
       [
@@ -118,12 +119,13 @@ export class PostgresEpisodicMemoryStore implements EpisodicMemoryStore {
         context.agentId,
         context.projectId ? "project" : "session",
         episode.summary,
-        JSON.stringify({
+        JSON.stringify(episode.content ?? {
           entities: episode.entities,
         }),
         embedding ? JSON.stringify(embedding) : null,
         episode.importance,
         episode.confidence ?? 0.75,
+        episode.source ?? "task_summary",
       ],
     );
   }

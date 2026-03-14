@@ -33,7 +33,13 @@ export type StoredProviderConfig = {
   model: string;
   profile?: ProviderProfile;
   temperature?: number;
+  contextWindow?: number;
   maxTokens?: number;
+  compact?: {
+    thresholdTokens?: number;
+    targetTokens?: number;
+    instructionPath?: string;
+  };
 };
 
 export type StoredProvidersConfig = {
