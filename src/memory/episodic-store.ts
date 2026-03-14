@@ -47,7 +47,7 @@ export class InMemoryEpisodicMemoryStore implements EpisodicMemoryStore {
     options: { limit: number; embedding?: number[] },
   ): Promise<EpisodicMemoryRecord[]> {
     const normalizedQuery = query.toLowerCase();
-    return this.records
+    const results = this.records
       .filter((record) => record.userId === context.userId && record.agentId === context.agentId)
       .map((record) => ({
         record,
@@ -56,6 +56,10 @@ export class InMemoryEpisodicMemoryStore implements EpisodicMemoryStore {
       .sort((left, right) => right.score - left.score)
       .slice(0, options.limit)
       .map(({ record }) => record);
+    console.log(
+      `[memory:episodes:store-search] store=in-memory user=${context.userId} agent=${context.agentId} session=${context.sessionId} mode=text count=${results.length} limit=${options.limit}`,
+    );
+    return results;
   }
 }
 
@@ -135,7 +139,11 @@ export class PostgresEpisodicMemoryStore implements EpisodicMemoryStore {
     query: string,
     options: { limit: number; embedding?: number[] },
   ): Promise<EpisodicMemoryRecord[]> {
-    const result = options.embedding && await this.supportsVector()
+    const vectorEnabled = Boolean(options.embedding) && await this.supportsVector();
+    console.log(
+      `[memory:episodes:store-search] store=postgres user=${context.userId} agent=${context.agentId} session=${context.sessionId} mode=${vectorEnabled ? "vector" : "text"} embedding_present=${Boolean(options.embedding)} limit=${options.limit} query=${JSON.stringify(truncate(query, 240))}`,
+    );
+    const result = vectorEnabled
       ? await this.db.query<DbEpisodeRow>(
         `
           SELECT
@@ -148,7 +156,7 @@ export class PostgresEpisodicMemoryStore implements EpisodicMemoryStore {
           ORDER BY embedding <=> $3::vector, importance DESC, updated_at DESC
           LIMIT $4
         `,
-        [context.userId, context.agentId, toVectorLiteral(options.embedding), options.limit],
+        [context.userId, context.agentId, toVectorLiteral(options.embedding!), options.limit],
       )
       : await this.db.query<DbEpisodeRow>(
         `
@@ -228,4 +236,8 @@ function scoreEpisode(record: EpisodicMemoryRecord, normalizedQuery: string): nu
 
 function toVectorLiteral(values: number[]): string {
   return `[${values.join(",")}]`;
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }

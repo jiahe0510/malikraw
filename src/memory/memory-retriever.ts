@@ -53,11 +53,25 @@ export class MemoryRetriever {
   }
 
   private async searchEpisodes(input: MemoryRetrieveInput) {
+    console.log(
+      `[memory:episodes:search:start] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} project=${input.context.projectId ?? "-"} limit=${this.config.episodicTopK} query=${JSON.stringify(truncate(input.query, 400))}`,
+    );
+
     const embedding = this.embedder ? await safeEmbed(this.embedder, input.query) : undefined;
-    return this.episodicStore.searchRelevant(input.context, input.query, {
+    console.log(
+      `[memory:episodes:search:embedding] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} enabled=${Boolean(this.embedder)} present=${Boolean(embedding)} dims=${embedding?.length ?? 0} preview=${formatEmbeddingPreview(embedding)}`,
+    );
+
+    const episodes = await this.episodicStore.searchRelevant(input.context, input.query, {
       limit: this.config.episodicTopK,
       embedding,
     });
+
+    console.log(
+      `[memory:episodes:search:result] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} count=${episodes.length} summaries=${JSON.stringify(episodes.map((episode) => truncate(episode.summary, 160)))}`,
+    );
+
+    return episodes;
   }
 }
 
@@ -71,4 +85,16 @@ async function safeEmbed(embedder: MemoryEmbedder, text: string): Promise<number
   } catch {
     return undefined;
   }
+}
+
+function formatEmbeddingPreview(embedding: number[] | undefined): string {
+  if (!embedding || embedding.length === 0) {
+    return "[]";
+  }
+
+  return JSON.stringify(embedding.slice(0, 8).map((value) => Number(value.toFixed(6))));
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }
