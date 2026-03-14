@@ -75,7 +75,7 @@ export async function runOnboardWizard(): Promise<void> {
     workspaceRoot,
   };
   const storedChannels: StoredChannelsConfig = {
-    defaultChannelId: channels[0]?.id ?? "",
+    defaultChannelId: resolveDefaultChannelId(channels),
     channels,
   };
   const storedAgents: StoredAgentsConfig = {
@@ -288,7 +288,8 @@ async function collectFeishuChannel(
   );
 
   return {
-    id: await promptText("Feishu channel id", existingChannel?.id || "飞书"),
+    ...(existingChannel ?? {}),
+    id: await promptText("Feishu channel id", existingChannel?.id || "feishu"),
     type: "feishu",
     appId: await promptText("Feishu app id", existingChannel?.appId || ""),
     appSecret: await promptText("Feishu app secret", existingChannel?.appSecret || ""),
@@ -296,6 +297,12 @@ async function collectFeishuChannel(
     replyMode,
     messageFormat,
   };
+}
+
+export function resolveDefaultChannelId(channels: StoredChannelConfig[]): string {
+  return channels.find((channel) => channel.type === "feishu")?.id
+    ?? channels[0]?.id
+    ?? "";
 }
 
 async function collectToolsConfig(existingTools: StoredToolsConfig | undefined): Promise<StoredToolsConfig> {
