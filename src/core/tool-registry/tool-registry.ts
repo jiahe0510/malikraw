@@ -101,6 +101,9 @@ export class ToolRegistry {
       at: startedAt.toISOString(),
       input: rawInput,
     });
+    console.log(
+      `[tool:start] name=${toolName} trace=${traceId} input=${formatForLog(rawInput)}`,
+    );
 
     const validation = validateSchema(tool.inputSchema, rawInput);
     if (!validation.ok) {
@@ -129,6 +132,9 @@ export class ToolRegistry {
         durationMs,
         output: data,
       });
+      console.log(
+        `[tool:success] name=${toolName} trace=${traceId} duration_ms=${durationMs} output=${formatForLog(data)}`,
+      );
 
       return {
         toolName,
@@ -160,6 +166,9 @@ export class ToolRegistry {
       durationMs,
       error,
     });
+    console.log(
+      `[tool:fail] name=${toolName} trace=${traceId} duration_ms=${durationMs} error=${formatForLog(error)}`,
+    );
 
     return {
       toolName,
@@ -203,6 +212,18 @@ function toExecutionError(toolName: string, cause: unknown): ToolExecutionError 
 
 function createTraceId(): string {
   return `trace_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function formatForLog(value: unknown): string {
+  try {
+    return truncate(JSON.stringify(value), 500);
+  } catch {
+    return truncate(String(value), 500);
+  }
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }
 
 function schemaToJsonSchema(schema: Schema): Record<string, unknown> {
