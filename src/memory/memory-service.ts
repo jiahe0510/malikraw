@@ -8,6 +8,7 @@ import { MemoryRetriever } from "./memory-retriever.js";
 import { MemoryWriter } from "./memory-writer.js";
 import { PostgresSemanticMemoryStore } from "./semantic-store.js";
 import { RedisSessionStateStore } from "./session-store.js";
+import { PostgresToolChainMemoryStore } from "./tool-chain-store.js";
 import type { MemoryConfig, MemoryRetrieveInput, MemoryService, MemoryWriteInput } from "./types.js";
 
 export class DefaultMemoryService implements MemoryService {
@@ -27,7 +28,7 @@ export class DefaultMemoryService implements MemoryService {
   async write(input: MemoryWriteInput) {
     const result = await this.writer.write(input);
     console.log(
-      `[memory:write] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} semantic=${result.semanticWritten} episodes=${result.episodeWritten ? 1 : 0}`,
+      `[memory:write] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} semantic=${result.semanticWritten} episodes=${result.episodeWritten ? 1 : 0} tool_chains=${result.toolChainsWritten}`,
     );
     return result;
   }
@@ -72,6 +73,7 @@ export class NoopMemoryService implements MemoryService {
       },
       semanticWritten: 0,
       episodeWritten: false,
+      toolChainsWritten: 0,
       observations: {
         semanticWritten: 0,
         episodesWritten: 0,
@@ -103,6 +105,7 @@ export function createMemoryService(
   const sessionStore = RedisSessionStateStore.fromUrl(config.redisUrl!);
   const semanticStore = PostgresSemanticMemoryStore.fromUrl(config.postgresUrl!);
   const episodicStore = PostgresEpisodicMemoryStore.fromUrl(config.postgresUrl!);
+  const toolChainStore = PostgresToolChainMemoryStore.fromUrl(config.postgresUrl!);
 
   const memoryClient = new OpenAIMemoryClient({
     baseURL: modelConfig.baseURL,
@@ -120,6 +123,15 @@ export function createMemoryService(
 
   return new DefaultMemoryService(
     new MemoryRetriever(sessionStore, semanticStore, episodicStore, config, embedder),
-    new MemoryWriter(sessionStore, semanticStore, episodicStore, semanticExtractor, episodeExtractor, config, embedder),
+    new MemoryWriter(
+      sessionStore,
+      semanticStore,
+      episodicStore,
+      toolChainStore,
+      semanticExtractor,
+      episodeExtractor,
+      config,
+      embedder,
+    ),
   );
 }

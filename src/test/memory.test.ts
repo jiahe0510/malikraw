@@ -9,6 +9,7 @@ import { MemoryRetriever } from "../memory/memory-retriever.js";
 import { MemoryWriter } from "../memory/memory-writer.js";
 import { InMemorySemanticMemoryStore } from "../memory/semantic-store.js";
 import { InMemorySessionStateStore } from "../memory/session-store.js";
+import { InMemoryToolChainMemoryStore } from "../memory/tool-chain-store.js";
 
 const memoryConfig = {
   enabled: true,
@@ -44,10 +45,12 @@ test("memory writer persists session state and deduplicated semantic memory", as
   const sessionStore = new InMemorySessionStateStore();
   const semanticStore = new InMemorySemanticMemoryStore();
   const episodicStore = new InMemoryEpisodicMemoryStore();
+  const toolChainStore = new InMemoryToolChainMemoryStore();
   const writer = new MemoryWriter(
     sessionStore,
     semanticStore,
     episodicStore,
+    toolChainStore,
     {
       extract: async () => [{
         key: "project_stack",
@@ -106,10 +109,12 @@ test("memory writer stores compaction summaries as episodic memory", async () =>
   const sessionStore = new InMemorySessionStateStore();
   const semanticStore = new InMemorySemanticMemoryStore();
   const episodicStore = new InMemoryEpisodicMemoryStore();
+  const toolChainStore = new InMemoryToolChainMemoryStore();
   const writer = new MemoryWriter(
     sessionStore,
     semanticStore,
     episodicStore,
+    toolChainStore,
     { extract: async () => [] },
     new HeuristicEpisodeExtractor(),
     memoryConfig,
@@ -146,6 +151,7 @@ test("memory retriever compiles session, semantic, and episodic memory into one 
   const sessionStore = new InMemorySessionStateStore();
   const semanticStore = new InMemorySemanticMemoryStore();
   const episodicStore = new InMemoryEpisodicMemoryStore();
+  const toolChainStore = new InMemoryToolChainMemoryStore();
   await sessionStore.write({
     sessionId: context.sessionId,
     userId: context.userId,
@@ -225,4 +231,64 @@ test("compileRelevantMemoryBlock enforces a prompt budget", () => {
   }, 120);
 
   assert.ok(block.length <= 120);
+});
+
+test("memory writer stores one tool chain per user query", async () => {
+  const context = {
+    sessionId: "s3",
+    userId: "u3",
+    agentId: "a3",
+  };
+  const sessionStore = new InMemorySessionStateStore();
+  const semanticStore = new InMemorySemanticMemoryStore();
+  const episodicStore = new InMemoryEpisodicMemoryStore();
+  const toolChainStore = new InMemoryToolChainMemoryStore();
+  const writer = new MemoryWriter(
+    sessionStore,
+    semanticStore,
+    episodicStore,
+    toolChainStore,
+    { extract: async () => [] },
+    new HeuristicEpisodeExtractor(),
+    memoryConfig,
+  );
+
+  const startedAt = new Date().toISOString();
+  const finishedAt = new Date().toISOString();
+  const result = await writer.write({
+    context,
+    userMessage: "查一下最近的国际新闻",
+    assistantResponse: "我已经检索并整理了结果。",
+    toolResults: [
+      {
+        toolName: "web_search",
+        traceId: "t1",
+        startedAt,
+        finishedAt,
+        durationMs: 12,
+        ok: true,
+        data: { query: "国际新闻" },
+      },
+      {
+        toolName: "open_page",
+        traceId: "t2",
+        startedAt,
+        finishedAt,
+        durationMs: 8,
+        ok: true,
+        data: { url: "https://example.com" },
+      },
+    ],
+    sessionMessages: [
+      { role: "user", content: "查一下最近的国际新闻" },
+      { role: "assistant", content: "我已经检索并整理了结果。" },
+    ],
+  });
+
+  assert.equal(result.toolChainsWritten, 1);
+  const records = toolChainStore.list();
+  assert.equal(records.length, 1);
+  assert.equal(records[0]?.query, "查一下最近的国际新闻");
+  assert.equal(records[0]?.toolChain.length, 2);
+  assert.deepEqual(records[0]?.toolChain.map((step) => step.toolName), ["web_search", "open_page"]);
 });

@@ -2,6 +2,7 @@ export * from "./types.js";
 export * from "./session-store.js";
 export * from "./semantic-store.js";
 export * from "./episodic-store.js";
+export * from "./tool-chain-store.js";
 export * from "./memory-compiler.js";
 export * from "./memory-retriever.js";
 export * from "./memory-service.js";

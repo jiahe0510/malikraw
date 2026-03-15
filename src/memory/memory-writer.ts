@@ -10,6 +10,8 @@ import type {
   EpisodicMemoryStore,
   MemoryEmbedder,
   SessionTaskState,
+  ToolChainMemoryStore,
+  ToolChainStep,
 } from "./types.js";
 
 export class MemoryWriter {
@@ -17,6 +19,7 @@ export class MemoryWriter {
     private readonly sessionStore: SessionStateStore,
     private readonly semanticStore: SemanticMemoryStore,
     private readonly episodicStore: EpisodicMemoryStore,
+    private readonly toolChainStore: ToolChainMemoryStore,
     private readonly semanticExtractor: SemanticExtractor,
     private readonly episodeExtractor: EpisodeExtractor,
     private readonly config: MemoryConfig,
@@ -58,10 +61,20 @@ export class MemoryWriter {
       await this.episodicStore.insert(input.context, compactionEpisode, embedding);
     }
 
+    const toolChain = buildToolChainSteps(input.toolResults);
+    if (toolChain.length > 0) {
+      await this.toolChainStore.insert(input.context, {
+        query: input.userMessage,
+        assistantResponse: input.assistantResponse,
+        toolChain,
+      });
+    }
+
     return {
       sessionState,
       semanticWritten,
       episodeWritten,
+      toolChainsWritten: toolChain.length > 0 ? 1 : 0,
       observations: {
         semanticWritten,
         episodesWritten: episodeWritten ? 1 : 0,
@@ -87,6 +100,26 @@ function buildSessionState(input: MemoryWriteInput, recentMessageLimit: number):
     },
     updatedAt: now,
   };
+}
+
+function buildToolChainSteps(toolResults: MemoryWriteInput["toolResults"]): ToolChainStep[] {
+  return toolResults.map((result) => result.ok
+    ? {
+      toolName: result.toolName,
+      ok: true,
+      startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
+      durationMs: result.durationMs,
+      data: result.data,
+    }
+    : {
+      toolName: result.toolName,
+      ok: false,
+      startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
+      durationMs: result.durationMs,
+      error: result.error,
+    });
 }
 
 function deriveTaskState(input: MemoryWriteInput, now: string): SessionTaskState {

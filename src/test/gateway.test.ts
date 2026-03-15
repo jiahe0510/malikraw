@@ -291,7 +291,7 @@ test("compactSessionMessages keeps recent history aligned to a user message boun
   );
 });
 
-test("compactSessionMessages removes tool messages from recent history but preserves them in the summary", () => {
+test("compactSessionMessages removes tool messages from both summary and recent history", () => {
   const messages: AgentMessage[] = [
     { role: "user", content: "u1" },
     { role: "assistant", content: "a1" },
@@ -306,7 +306,7 @@ test("compactSessionMessages removes tool messages from recent history but prese
   });
 
   assert.equal(compacted[0]?.role, "user");
-  assert.match(compacted[0]?.content ?? "", /tool read_file/);
+  assert.doesNotMatch(compacted[0]?.content ?? "", /tool read_file/);
   assert.deepEqual(
     compacted.slice(1).map((message) => `${message.role}:${message.content}`),
     ["user:u2", "assistant:a2"],

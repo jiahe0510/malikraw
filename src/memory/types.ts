@@ -106,6 +106,29 @@ export type MemoryWriteInput = {
   };
 };
 
+export type ToolChainStep = {
+  toolName: string;
+  ok: boolean;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  data?: unknown;
+  error?: unknown;
+};
+
+export type ToolChainMemoryRecord = {
+  id: string;
+  userId: string;
+  agentId: string;
+  sessionId: string;
+  projectId?: string;
+  query: string;
+  assistantResponse: string;
+  toolChain: ToolChainStep[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type MemoryRetrieveInput = {
   context: MemoryContext;
   query: string;
@@ -132,6 +155,7 @@ export type MemoryWriteResult = {
   sessionState: SessionStateRecord;
   semanticWritten: number;
   episodeWritten: boolean;
+  toolChainsWritten: number;
   observations: MemoryObservations;
 };
 
@@ -179,6 +203,17 @@ export interface EpisodicMemoryStore {
       embedding?: number[];
     },
   ): Promise<EpisodicMemoryRecord[]>;
+}
+
+export interface ToolChainMemoryStore {
+  insert(
+    context: MemoryContext,
+    input: {
+      query: string;
+      assistantResponse: string;
+      toolChain: ToolChainStep[];
+    },
+  ): Promise<void>;
 }
 
 export interface MemoryEmbedder {

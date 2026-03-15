@@ -19,7 +19,7 @@ test("openai profile keeps developer messages separate", () => {
   ]);
 });
 
-test("qwen profile downgrades developer messages to standalone system messages", () => {
+test("qwen profile merges instruction messages into one system message", () => {
   const messages: AgentMessage[] = [
     { role: "system", content: "global policy" },
     { role: "developer", content: "skill block" },
@@ -29,8 +29,7 @@ test("qwen profile downgrades developer messages to standalone system messages",
   const normalized = normalizeMessagesForProfile(messages, "qwen");
 
   assert.deepEqual(normalized, [
-    { role: "system", content: "global policy" },
-    { role: "system", content: "skill block" },
+    { role: "system", content: "global policy\n\nskill block" },
     { role: "user", content: "help me" },
   ]);
 });

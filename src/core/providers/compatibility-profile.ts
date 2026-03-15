@@ -11,17 +11,21 @@ export type TransportMessage = {
 
 type CompatibilityProfile = {
   supportsDeveloperRole: boolean;
+  mergeInstructionMessages: boolean;
 };
 
 const PROFILES: Record<ProviderProfile, CompatibilityProfile> = {
   openai: {
     supportsDeveloperRole: true,
+    mergeInstructionMessages: false,
   },
   deepseek: {
     supportsDeveloperRole: false,
+    mergeInstructionMessages: true,
   },
   qwen: {
     supportsDeveloperRole: false,
+    mergeInstructionMessages: true,
   },
 };
 
@@ -30,9 +34,34 @@ export function normalizeMessagesForProfile(
   profile?: ProviderProfile,
 ): TransportMessage[] {
   const compatibility = PROFILES[profile ?? "openai"];
-  return messages
-    .map((message) => toTransportMessage(message, compatibility))
-    .filter((message): message is TransportMessage => message !== undefined);
+
+  if (!compatibility.mergeInstructionMessages && compatibility.supportsDeveloperRole) {
+    return messages
+      .map((message) => toTransportMessage(message, compatibility))
+      .filter((message): message is TransportMessage => message !== undefined);
+  }
+
+  const normalized: TransportMessage[] = [];
+  const instructionParts: string[] = [];
+
+  for (const message of messages) {
+    if (message.role === "system" || message.role === "developer") {
+      const content = message.content.trim();
+      if (content) {
+        instructionParts.push(content);
+      }
+      continue;
+    }
+
+    flushInstructionParts(normalized, instructionParts);
+    const transport = toTransportMessage(message, compatibility);
+    if (transport) {
+      normalized.push(transport);
+    }
+  }
+
+  flushInstructionParts(normalized, instructionParts);
+  return normalized;
 }
 
 function toTransportMessage(
@@ -64,4 +93,19 @@ function toTransportMessage(
     role: message.role,
     content,
   };
+}
+
+function flushInstructionParts(
+  normalized: TransportMessage[],
+  instructionParts: string[],
+): void {
+  if (instructionParts.length === 0) {
+    return;
+  }
+
+  normalized.push({
+    role: "system",
+    content: instructionParts.join("\n\n"),
+  });
+  instructionParts.length = 0;
 }

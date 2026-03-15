@@ -29,6 +29,22 @@ CREATE TABLE IF NOT EXISTS session_state (
   state JSONB NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS memory_tool_chain (
+  id UUID PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  project_id TEXT,
+  query TEXT NOT NULL,
+  assistant_response TEXT NOT NULL,
+  tool_chain JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS memory_tool_chain_lookup_idx
+  ON memory_tool_chain (user_id, agent_id, session_id, created_at DESC);
 `;
 
 export const MEMORY_VECTOR_MIGRATION_SQL = `

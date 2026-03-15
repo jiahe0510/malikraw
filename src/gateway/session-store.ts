@@ -123,7 +123,9 @@ function buildSummaryMessage(
       continue;
     }
 
-    lines.push(renderSummaryLine(message));
+    if (message.role === "user" || message.role === "assistant") {
+      lines.push(renderSummaryLine(message));
+    }
   }
 
   const body = [...carriedSummaries, ...lines]
@@ -141,10 +143,6 @@ function buildSummaryMessage(
 }
 
 function renderSummaryLine(message: AgentMessage): string {
-  if (message.role === "tool") {
-    return `tool ${message.toolName ?? "unknown"}: ${truncate(message.content, 240)}`;
-  }
-
   return `${message.role}: ${truncate(message.content, 240)}`;
 }
 
