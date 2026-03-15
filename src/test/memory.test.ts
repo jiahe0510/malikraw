@@ -4,10 +4,9 @@ import assert from "node:assert/strict";
 import { compileRelevantMemoryBlock } from "../memory/memory-compiler.js";
 import { HeuristicEpisodeExtractor } from "../memory/extractors/episode-extractor.js";
 import { extractSemanticHeuristically } from "../memory/extractors/semantic-extractor.js";
-import { InMemoryEpisodicMemoryStore } from "../memory/episodic-store.js";
+import { InMemoryMemoryItemStore } from "../memory/memory-item-store.js";
 import { MemoryRetriever } from "../memory/memory-retriever.js";
 import { MemoryWriter } from "../memory/memory-writer.js";
-import { InMemorySemanticMemoryStore } from "../memory/semantic-store.js";
 import { InMemorySessionStateStore } from "../memory/session-store.js";
 import { InMemoryToolChainMemoryStore } from "../memory/tool-chain-store.js";
 
@@ -41,26 +40,14 @@ test("heuristic semantic extractor keeps stable preferences and constraints only
   ]);
 });
 
-test("memory writer persists session state and deduplicated semantic memory", async () => {
+test("memory writer persists session state and query-indexed memory items", async () => {
   const sessionStore = new InMemorySessionStateStore();
-  const semanticStore = new InMemorySemanticMemoryStore();
-  const episodicStore = new InMemoryEpisodicMemoryStore();
+  const memoryItemStore = new InMemoryMemoryItemStore();
   const toolChainStore = new InMemoryToolChainMemoryStore();
   const writer = new MemoryWriter(
     sessionStore,
-    semanticStore,
-    episodicStore,
+    memoryItemStore,
     toolChainStore,
-    {
-      extract: async () => [{
-        key: "project_stack",
-        value: "TypeScript",
-        scope: "project",
-        confidence: 0.9,
-        source: "explicit",
-        summary: "Current project stack is TypeScript.",
-      }],
-    },
     new HeuristicEpisodeExtractor(),
     memoryConfig,
   );
@@ -89,33 +76,30 @@ test("memory writer persists session state and deduplicated semantic memory", as
   };
 
   const result = await writer.write(input);
-  assert.equal(result.semanticWritten, 1);
-  assert.equal(result.episodeWritten, true);
+  assert.equal(result.memoryItemsWritten, 1);
 
   const state = await sessionStore.read(input.context);
   assert.equal(state?.state.recentMessages.length, 2);
 
   await writer.write(input);
-  const semantic = await semanticStore.listRelevant(input.context, ["project"], 10);
-  assert.equal(semantic.length, 1);
+  const items = await memoryItemStore.searchRelevant(input.context, "Use TypeScript", { limit: 10 });
+  assert.equal(items.length, 2);
+  assert.match(items[0]?.content ?? "", /Use TypeScript/);
 });
 
-test("memory writer stores compaction summaries as episodic memory", async () => {
+test("memory writer stores compaction summaries as query-indexed memory items", async () => {
   const context = {
     sessionId: "s2",
     userId: "u2",
     agentId: "a2",
   };
   const sessionStore = new InMemorySessionStateStore();
-  const semanticStore = new InMemorySemanticMemoryStore();
-  const episodicStore = new InMemoryEpisodicMemoryStore();
+  const memoryItemStore = new InMemoryMemoryItemStore();
   const toolChainStore = new InMemoryToolChainMemoryStore();
   const writer = new MemoryWriter(
     sessionStore,
-    semanticStore,
-    episodicStore,
+    memoryItemStore,
     toolChainStore,
-    { extract: async () => [] },
     new HeuristicEpisodeExtractor(),
     memoryConfig,
   );
@@ -136,12 +120,12 @@ test("memory writer stores compaction summaries as episodic memory", async () =>
     },
   });
 
-  const episodes = await episodicStore.searchRelevant(context, "compress history", { limit: 10 });
-  assert.ok(episodes.some((episode) => episode.source === "history_compaction"));
-  assert.ok(episodes.some((episode) => /compress only history/i.test(episode.summary)));
+  const items = memoryItemStore.list();
+  assert.ok(items.some((item) => item.source === "history_compaction"));
+  assert.ok(items.some((item) => /compress only history/i.test(item.content)));
 });
 
-test("memory retriever compiles session, semantic, and episodic memory into one block", async () => {
+test("memory retriever compiles query memory and tool chains into one block", async () => {
   const context = {
     sessionId: "s1",
     userId: "u1",
@@ -149,8 +133,7 @@ test("memory retriever compiles session, semantic, and episodic memory into one 
     projectId: "p1",
   };
   const sessionStore = new InMemorySessionStateStore();
-  const semanticStore = new InMemorySemanticMemoryStore();
-  const episodicStore = new InMemoryEpisodicMemoryStore();
+  const memoryItemStore = new InMemoryMemoryItemStore();
   const toolChainStore = new InMemoryToolChainMemoryStore();
   await sessionStore.write({
     sessionId: context.sessionId,
@@ -173,58 +156,77 @@ test("memory retriever compiles session, semantic, and episodic memory into one 
       },
     },
   });
-  await semanticStore.upsertMany(context, [{
-    key: "answer_style",
-    value: "implementation-focused",
-    scope: "global",
-    confidence: 0.95,
-    source: "explicit",
-    summary: "User prefers implementation-focused answers.",
-  }]);
-  await episodicStore.insert(context, {
-    summary: "Recently designed a three-phase memory implementation plan.",
-    entities: ["Redis", "Postgres"],
+  await memoryItemStore.insert(context, {
+    query: "How should we implement memory?",
+    summary: "Memory implementation plan",
+    content: "Use Redis and Postgres and stage the implementation in three phases.",
+    scope: "project",
     importance: 0.9,
     confidence: 0.8,
+    source: "task_summary",
   });
 
-  const retriever = new MemoryRetriever(sessionStore, semanticStore, episodicStore, memoryConfig);
+  await toolChainStore.insert(context, {
+    query: "How should we implement memory?",
+    assistantResponse: "Use Redis and Postgres, then run migrations.",
+    toolChain: [
+      {
+        toolName: "read_file",
+        ok: true,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: 2,
+      },
+      {
+        toolName: "edit_file",
+        ok: true,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: 3,
+      },
+    ],
+  });
+
+  const retriever = new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, memoryConfig);
   const result = await retriever.retrieve({
     context,
     query: "How should we implement memory?",
   });
 
   assert.match(result.compiledBlock, /\[Relevant Memory\]/);
-  assert.match(result.compiledBlock, /implementation-focused/);
-  assert.match(result.compiledBlock, /three-phase memory implementation plan/);
+  assert.match(result.compiledBlock, /Relevant user memory/);
+  assert.match(result.compiledBlock, /Use Redis and Postgres and stage the implementation/);
+  assert.match(result.compiledBlock, /Reusable tool chains/);
+  assert.match(result.compiledBlock, /read_file -> edit_file/);
   assert.match(result.compiledBlock, /Goal: Implement memory/);
   assert.ok(result.observations.compiledChars > 0);
+  assert.equal(result.observations.memoryItemsRetrieved, 1);
+  assert.equal(result.observations.toolChainsRetrieved, 1);
 });
 
 test("compileRelevantMemoryBlock enforces a prompt budget", () => {
   const block = compileRelevantMemoryBlock({
     sessionState: undefined,
-    semantic: [{
+    memoryItems: [{
       id: "1",
       userId: "u1",
       agentId: "a1",
       scope: "global",
-      key: "pref",
+      query: "preferred answer style",
       summary: "x".repeat(400),
-      value: "x",
+      content: "x".repeat(400),
       confidence: 0.9,
       importance: 1,
       source: "user_explicit",
-      content: {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }],
-    episodes: [],
+    toolChains: [],
     observations: {
-      semanticWritten: 0,
-      episodesWritten: 0,
-      semanticRetrieved: 1,
-      episodesRetrieved: 0,
+      memoryItemsWritten: 0,
+      toolChainsWritten: 0,
+      memoryItemsRetrieved: 1,
+      toolChainsRetrieved: 0,
       compiledChars: 0,
       estimatedTokens: 0,
     },
@@ -240,15 +242,12 @@ test("memory writer stores one tool chain per user query", async () => {
     agentId: "a3",
   };
   const sessionStore = new InMemorySessionStateStore();
-  const semanticStore = new InMemorySemanticMemoryStore();
-  const episodicStore = new InMemoryEpisodicMemoryStore();
+  const memoryItemStore = new InMemoryMemoryItemStore();
   const toolChainStore = new InMemoryToolChainMemoryStore();
   const writer = new MemoryWriter(
     sessionStore,
-    semanticStore,
-    episodicStore,
+    memoryItemStore,
     toolChainStore,
-    { extract: async () => [] },
     new HeuristicEpisodeExtractor(),
     memoryConfig,
   );

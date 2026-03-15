@@ -61,6 +61,31 @@ export type EpisodicMemoryRecord = {
   updatedAt: string;
 };
 
+export type QueryMemoryItemRecord = {
+  id: string;
+  userId: string;
+  agentId: string;
+  scope: MemoryScope;
+  query: string;
+  summary: string;
+  content: string;
+  importance: number;
+  confidence: number;
+  source: MemorySource;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type QueryMemoryItemCandidate = {
+  query: string;
+  summary: string;
+  content: string;
+  scope: MemoryScope;
+  importance: number;
+  confidence: number;
+  source: MemorySource;
+};
+
 export type SemanticMemoryCandidate = {
   key: string;
   value: string | boolean | number;
@@ -136,25 +161,24 @@ export type MemoryRetrieveInput = {
 
 export type RetrievedMemory = {
   sessionState?: SessionStateRecord;
-  semantic: SemanticMemoryRecord[];
-  episodes: EpisodicMemoryRecord[];
+  memoryItems: QueryMemoryItemRecord[];
+  toolChains: ToolChainMemoryRecord[];
   compiledBlock: string;
   observations: MemoryObservations;
 };
 
 export type MemoryObservations = {
-  semanticWritten: number;
-  episodesWritten: number;
-  semanticRetrieved: number;
-  episodesRetrieved: number;
+  memoryItemsWritten: number;
+  toolChainsWritten: number;
+  memoryItemsRetrieved: number;
+  toolChainsRetrieved: number;
   compiledChars: number;
   estimatedTokens: number;
 };
 
 export type MemoryWriteResult = {
   sessionState: SessionStateRecord;
-  semanticWritten: number;
-  episodeWritten: boolean;
+  memoryItemsWritten: number;
   toolChainsWritten: number;
   observations: MemoryObservations;
 };
@@ -205,6 +229,22 @@ export interface EpisodicMemoryStore {
   ): Promise<EpisodicMemoryRecord[]>;
 }
 
+export interface MemoryItemStore {
+  insert(
+    context: MemoryContext,
+    item: QueryMemoryItemCandidate,
+    embedding?: number[],
+  ): Promise<void>;
+  searchRelevant(
+    context: MemoryContext,
+    query: string,
+    options: {
+      limit: number;
+      embedding?: number[];
+    },
+  ): Promise<QueryMemoryItemRecord[]>;
+}
+
 export interface ToolChainMemoryStore {
   insert(
     context: MemoryContext,
@@ -213,7 +253,16 @@ export interface ToolChainMemoryStore {
       assistantResponse: string;
       toolChain: ToolChainStep[];
     },
+    embedding?: number[],
   ): Promise<void>;
+  searchRelevant(
+    context: MemoryContext,
+    query: string,
+    options: {
+      limit: number;
+      embedding?: number[];
+    },
+  ): Promise<ToolChainMemoryRecord[]>;
 }
 
 export interface MemoryEmbedder {

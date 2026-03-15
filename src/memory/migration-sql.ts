@@ -5,10 +5,11 @@ CREATE TABLE IF NOT EXISTS memory_items (
   agent_id TEXT NOT NULL,
   type TEXT NOT NULL,
   scope TEXT NOT NULL,
+  query TEXT,
   memory_key TEXT,
   summary TEXT NOT NULL,
   content JSONB NOT NULL,
-  embedding_json JSONB,
+  query_embedding_json JSONB,
   importance REAL DEFAULT 0,
   confidence REAL DEFAULT 0,
   source TEXT,
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS memory_tool_chain (
   query TEXT NOT NULL,
   assistant_response TEXT NOT NULL,
   tool_chain JSONB NOT NULL,
+  query_embedding_json JSONB,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

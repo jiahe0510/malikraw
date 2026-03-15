@@ -1,13 +1,11 @@
 import type {
   EpisodeExtractor,
   MemoryConfig,
+  MemoryItemStore,
   MemoryWriteInput,
   MemoryWriteResult,
-  SemanticExtractor,
   SessionStateRecord,
   SessionStateStore,
-  SemanticMemoryStore,
-  EpisodicMemoryStore,
   MemoryEmbedder,
   SessionTaskState,
   ToolChainMemoryStore,
@@ -17,10 +15,8 @@ import type {
 export class MemoryWriter {
   constructor(
     private readonly sessionStore: SessionStateStore,
-    private readonly semanticStore: SemanticMemoryStore,
-    private readonly episodicStore: EpisodicMemoryStore,
+    private readonly memoryItemStore: MemoryItemStore,
     private readonly toolChainStore: ToolChainMemoryStore,
-    private readonly semanticExtractor: SemanticExtractor,
     private readonly episodeExtractor: EpisodeExtractor,
     private readonly config: MemoryConfig,
     private readonly embedder?: MemoryEmbedder,
@@ -30,56 +26,45 @@ export class MemoryWriter {
     const sessionState = buildSessionState(input, this.config.sessionRecentMessages);
     await this.sessionStore.write(sessionState);
 
-    const semantic = await this.semanticExtractor.extract(input);
-    const filteredSemantic = semantic.filter((item) => item.confidence >= this.config.importanceThreshold);
-    const semanticWritten = filteredSemantic.length > 0
-      ? await this.semanticStore.upsertMany(input.context, filteredSemantic)
-      : 0;
-
-    const episode = await this.episodeExtractor.extract(input);
-    let episodeWritten = false;
-    if (episode && episode.importance >= this.config.importanceThreshold) {
-      const embedding = this.embedder ? await safeEmbed(this.embedder, episode.summary) : undefined;
-      await this.episodicStore.insert(input.context, episode, embedding);
-      episodeWritten = true;
-    }
-
-    if (input.compaction?.summary.trim()) {
-      const compactionEpisode = {
-        summary: input.compaction.summary.trim(),
-        entities: ["compacted_history"],
-        importance: Math.max(this.config.importanceThreshold, 0.85),
-        confidence: 0.9,
-        source: "history_compaction" as const,
-        content: {
-          kind: "history_compaction",
-          messagesCompacted: input.compaction.messagesCompacted,
-          estimatedTokens: input.compaction.estimatedTokens,
-        },
-      };
-      const embedding = this.embedder ? await safeEmbed(this.embedder, compactionEpisode.summary) : undefined;
-      await this.episodicStore.insert(input.context, compactionEpisode, embedding);
+    const extracted = await this.episodeExtractor.extract(input);
+    const content = buildMemoryItemContent(input, extracted?.summary);
+    const importance = input.compaction?.summary
+      ? Math.max(this.config.importanceThreshold, 0.85)
+      : extracted?.importance ?? (input.toolResults.length > 0 ? 0.8 : 0.6);
+    const confidence = extracted?.confidence ?? 0.75;
+    const shouldStoreMemoryItem = importance >= this.config.importanceThreshold;
+    if (shouldStoreMemoryItem) {
+      const embedding = this.embedder ? await safeEmbed(this.embedder, input.userMessage) : undefined;
+      await this.memoryItemStore.insert(input.context, {
+        query: input.userMessage,
+        summary: extracted?.summary ?? truncate(content, 240),
+        content,
+        scope: input.context.projectId ? "project" : "session",
+        importance,
+        confidence,
+        source: input.compaction?.summary ? "history_compaction" : "task_summary",
+      }, embedding);
     }
 
     const toolChain = buildToolChainSteps(input.toolResults);
     if (toolChain.length > 0) {
+      const embedding = this.embedder ? await safeEmbed(this.embedder, input.userMessage) : undefined;
       await this.toolChainStore.insert(input.context, {
         query: input.userMessage,
         assistantResponse: input.assistantResponse,
         toolChain,
-      });
+      }, embedding);
     }
 
     return {
       sessionState,
-      semanticWritten,
-      episodeWritten,
+      memoryItemsWritten: shouldStoreMemoryItem ? 1 : 0,
       toolChainsWritten: toolChain.length > 0 ? 1 : 0,
       observations: {
-        semanticWritten,
-        episodesWritten: episodeWritten ? 1 : 0,
-        semanticRetrieved: 0,
-        episodesRetrieved: 0,
+        memoryItemsWritten: shouldStoreMemoryItem ? 1 : 0,
+        toolChainsWritten: toolChain.length > 0 ? 1 : 0,
+        memoryItemsRetrieved: 0,
+        toolChainsRetrieved: 0,
         compiledChars: 0,
         estimatedTokens: 0,
       },
@@ -147,4 +132,21 @@ async function safeEmbed(embedder: MemoryEmbedder, text: string): Promise<number
   } catch {
     return undefined;
   }
+}
+
+function buildMemoryItemContent(input: MemoryWriteInput, summary: string | undefined): string {
+  const parts = [
+    `User query: ${input.userMessage}`,
+    input.compaction?.summary ? `Compacted history: ${input.compaction.summary}` : undefined,
+    summary ? `Summary: ${summary}` : undefined,
+    `Assistant response: ${input.assistantResponse}`,
+    input.toolResults.length > 0
+      ? `Tool chain: ${input.toolResults.map((result) => result.toolName).join(" -> ")}`
+      : undefined,
+  ];
+  return parts.filter(Boolean).join("\n");
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }

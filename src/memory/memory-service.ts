@@ -1,12 +1,10 @@
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
 import { OpenAICompatibleEmbedder } from "./embedding-client.js";
-import { PostgresEpisodicMemoryStore } from "./episodic-store.js";
 import { HeuristicEpisodeExtractor, LlmEpisodeExtractor } from "./extractors/episode-extractor.js";
 import { OpenAIMemoryClient } from "./extractors/openai-memory-client.js";
-import { HeuristicSemanticExtractor, LlmSemanticExtractor } from "./extractors/semantic-extractor.js";
+import { PostgresMemoryItemStore } from "./memory-item-store.js";
 import { MemoryRetriever } from "./memory-retriever.js";
 import { MemoryWriter } from "./memory-writer.js";
-import { PostgresSemanticMemoryStore } from "./semantic-store.js";
 import { RedisSessionStateStore } from "./session-store.js";
 import { PostgresToolChainMemoryStore } from "./tool-chain-store.js";
 import type { MemoryConfig, MemoryRetrieveInput, MemoryService, MemoryWriteInput } from "./types.js";
@@ -20,7 +18,7 @@ export class DefaultMemoryService implements MemoryService {
   async retrieve(input: MemoryRetrieveInput) {
     const result = await this.retriever.retrieve(input);
     console.log(
-      `[memory:retrieve] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} semantic=${result.observations.semanticRetrieved} episodes=${result.observations.episodesRetrieved} chars=${result.observations.compiledChars} est_tokens=${result.observations.estimatedTokens}`,
+      `[memory:retrieve] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} memory_items=${result.observations.memoryItemsRetrieved} tool_chains=${result.observations.toolChainsRetrieved} chars=${result.observations.compiledChars} est_tokens=${result.observations.estimatedTokens}`,
     );
     return result;
   }
@@ -28,7 +26,7 @@ export class DefaultMemoryService implements MemoryService {
   async write(input: MemoryWriteInput) {
     const result = await this.writer.write(input);
     console.log(
-      `[memory:write] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} semantic=${result.semanticWritten} episodes=${result.episodeWritten ? 1 : 0} tool_chains=${result.toolChainsWritten}`,
+      `[memory:write] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} memory_items=${result.memoryItemsWritten} tool_chains=${result.toolChainsWritten}`,
     );
     return result;
   }
@@ -38,14 +36,14 @@ export class NoopMemoryService implements MemoryService {
   async retrieve(input: MemoryRetrieveInput) {
     return {
       sessionState: undefined,
-      semantic: [],
-      episodes: [],
+      memoryItems: [],
+      toolChains: [],
       compiledBlock: "",
       observations: {
-        semanticWritten: 0,
-        episodesWritten: 0,
-        semanticRetrieved: 0,
-        episodesRetrieved: 0,
+        memoryItemsWritten: 0,
+        toolChainsWritten: 0,
+        memoryItemsRetrieved: 0,
+        toolChainsRetrieved: 0,
         compiledChars: 0,
         estimatedTokens: 0,
       },
@@ -71,14 +69,13 @@ export class NoopMemoryService implements MemoryService {
         },
         updatedAt: new Date().toISOString(),
       },
-      semanticWritten: 0,
-      episodeWritten: false,
+      memoryItemsWritten: 0,
       toolChainsWritten: 0,
       observations: {
-        semanticWritten: 0,
-        episodesWritten: 0,
-        semanticRetrieved: 0,
-        episodesRetrieved: 0,
+        memoryItemsWritten: 0,
+        toolChainsWritten: 0,
+        memoryItemsRetrieved: 0,
+        toolChainsRetrieved: 0,
         compiledChars: 0,
         estimatedTokens: 0,
       },
@@ -103,8 +100,7 @@ export function createMemoryService(
     })
     : undefined;
   const sessionStore = RedisSessionStateStore.fromUrl(config.redisUrl!);
-  const semanticStore = PostgresSemanticMemoryStore.fromUrl(config.postgresUrl!);
-  const episodicStore = PostgresEpisodicMemoryStore.fromUrl(config.postgresUrl!);
+  const memoryItemStore = PostgresMemoryItemStore.fromUrl(config.postgresUrl!);
   const toolChainStore = PostgresToolChainMemoryStore.fromUrl(config.postgresUrl!);
 
   const memoryClient = new OpenAIMemoryClient({
@@ -114,21 +110,16 @@ export function createMemoryService(
     profile: modelConfig.profile,
     temperature: 0,
   });
-  const semanticExtractor = memoryClient
-    ? new LlmSemanticExtractor(memoryClient)
-    : new HeuristicSemanticExtractor();
   const episodeExtractor = memoryClient
     ? new LlmEpisodeExtractor(memoryClient)
     : new HeuristicEpisodeExtractor();
 
   return new DefaultMemoryService(
-    new MemoryRetriever(sessionStore, semanticStore, episodicStore, config, embedder),
+    new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, config, embedder),
     new MemoryWriter(
       sessionStore,
-      semanticStore,
-      episodicStore,
+      memoryItemStore,
       toolChainStore,
-      semanticExtractor,
       episodeExtractor,
       config,
       embedder,

@@ -6,22 +6,25 @@ export function compileRelevantMemoryBlock(
 ): string {
   const lines: string[] = ["[Relevant Memory]"];
 
-  const stableFacts = input.semantic
-    .map((item) => `- ${item.summary}`)
+  const memoryItems = input.memoryItems
+    .map((item) => `- Query: ${truncate(item.query, 80)} | Memory: ${truncate(item.content, 160)}`)
     .slice(0, 6);
-  if (stableFacts.length > 0) {
+  if (memoryItems.length > 0) {
     lines.push("");
-    lines.push("Stable facts:");
-    lines.push(...stableFacts);
+    lines.push("Relevant user memory:");
+    lines.push(...memoryItems);
   }
 
-  const recentEpisodes = input.episodes
-    .map((item) => `- ${item.summary}`)
-    .slice(0, 4);
-  if (recentEpisodes.length > 0) {
+  const toolChainHints = input.toolChains
+    .slice(0, 3)
+    .map((item) => {
+      const chain = item.toolChain.map((step) => step.toolName).join(" -> ");
+      return `- Query: ${truncate(item.query, 100)} | Tools: ${truncate(chain, 120)}`;
+    });
+  if (toolChainHints.length > 0) {
     lines.push("");
-    lines.push("Recent episodes:");
-    lines.push(...recentEpisodes);
+    lines.push("Reusable tool chains:");
+    lines.push(...toolChainHints);
   }
 
   const taskStateBlock = formatTaskState(input.sessionState?.state.taskState);

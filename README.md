@@ -172,63 +172,51 @@ Media paths are resolved inside the workspace and validated before dispatch.
 
 ## Enhanced Memory
 
-Enhanced memory is the current minimal long-running memory system. It is intentionally simple and is split across Redis and Postgres.
+Enhanced memory is split across Redis and Postgres.
 
 ### What Redis Does
 
-Redis stores short-lived session state:
+Redis stores session state:
 
 - recent messages for a session
 - current task state
-- fast session lookups during ongoing conversations
-
-This is the short-term layer. It is optimized for current conversation continuity, not long-term recall.
+- fast lookups during an active conversation
 
 ### What Postgres Does
 
-Postgres stores long-lived memory:
+Postgres stores two query-indexed tables:
 
-- semantic memory
-  - stable facts such as user preferences, project constraints, tech stack choices
-- episodic memory
-  - summaries of notable tasks, decisions, and outcomes
+- `memory_items`
+  - each row stores a user query and a memory content block derived from that turn
+  - retrieval uses the new user query to match similar past queries
+  - the matched `content` is injected back into the prompt as user memory
+- `memory_tool_chain`
+  - each row stores a user query and the tool call chain used for that query
+  - retrieval also uses the new user query to match similar past queries
+  - the matched tool chains are injected into the prompt as reusable tool paths
 
-This is the durable layer. It survives restarts and is what allows cross-session recall.
+This is the durable layer. It survives restarts and is used for cross-session recall.
 
 ### What pgvector Does
 
-`pgvector` only improves episodic retrieval.
+`pgvector` improves query matching for both tables.
 
 Without `pgvector`:
 
-- episodic memory falls back to text matching
+- retrieval falls back to text matching on stored queries and content
 
 With `pgvector`:
 
-- episodic summaries can be embedded
 - user queries can be embedded
-- the system retrieves semantically similar past episodes instead of only keyword matches
+- the system can match semantically similar past queries instead of only keyword matches
 
-That means:
+If `pgvector` is unavailable, enhanced memory still works. You only lose vector similarity search.
 
-- Postgres gives you durable memory storage
-- pgvector makes episodic recall smarter
-
-If `pgvector` is unavailable, enhanced memory still works. You only lose vector similarity search for episodes.
-
-### Why Redis + Postgres Improves Memory
-
-This split keeps prompt quality and latency under control:
-
-- Redis keeps the active session cheap and fast
-- Postgres keeps important information durable
-- pgvector improves finding relevant older episodes
-
-So the model gets:
+### What The Model Gets
 
 - recent local context from Redis-backed session state
-- stable facts and prior episodes from Postgres
-- better episodic recall if pgvector is enabled
+- matched memory content from `memory_items`
+- matched tool chains from `memory_tool_chain`
 
 ### Current Memory Compression
 
@@ -248,18 +236,15 @@ When runtime compaction triggers:
 - recent history is kept
 - recent history is aligned to a `user` boundary
 - compaction guidance is read from workspace `COMPACT.md` by default
-- important compacted information is also written into episodic memory
-- if embeddings are enabled, that compacted summary is stored with a vector and becomes retrievable through episodic recall
+- compacted information is also written into `memory_items`
+- if embeddings are enabled, it is indexed by the query embedding for later retrieval
 
-This is designed to avoid prompt-template breakage in backends like LM Studio / Qwen while still preserving enough context for the next turn.
+This keeps the active prompt smaller without dropping older context completely.
 
 The current system does not yet do:
 
 - advanced forgetting
-- reflection memory
-- procedural memory
-- graph memory
-- complex reranking
+- reranking beyond the current retrieval order
 
 ## TUI
 

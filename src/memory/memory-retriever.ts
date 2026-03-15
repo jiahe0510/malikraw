@@ -1,39 +1,40 @@
 import { compileRelevantMemoryBlock } from "./memory-compiler.js";
 import type {
-  EpisodicMemoryStore,
   MemoryConfig,
   MemoryEmbedder,
+  MemoryItemStore,
   MemoryRetrieveInput,
   RetrievedMemory,
-  SemanticMemoryStore,
   SessionStateStore,
+  ToolChainMemoryStore,
 } from "./types.js";
 
 export class MemoryRetriever {
   constructor(
     private readonly sessionStore: SessionStateStore,
-    private readonly semanticStore: SemanticMemoryStore,
-    private readonly episodicStore: EpisodicMemoryStore,
+    private readonly memoryItemStore: MemoryItemStore,
+    private readonly toolChainStore: ToolChainMemoryStore,
     private readonly config: MemoryConfig,
     private readonly embedder?: MemoryEmbedder,
   ) {}
 
   async retrieve(input: MemoryRetrieveInput): Promise<RetrievedMemory> {
-    const [sessionState, semantic, episodes] = await Promise.all([
+    const embedding = this.embedder ? await safeEmbed(this.embedder, input.query) : undefined;
+    const [sessionState, memoryItems, toolChains] = await Promise.all([
       this.sessionStore.read(input.context),
-      this.semanticStore.listRelevant(input.context, ["session", "project", "global"], this.config.semanticTopK),
-      this.searchEpisodes(input),
+      this.searchMemoryItems(input, embedding),
+      this.searchToolChains(input),
     ]);
 
     const base = {
       sessionState,
-      semantic,
-      episodes,
+      memoryItems,
+      toolChains,
       observations: {
-        semanticWritten: 0,
-        episodesWritten: 0,
-        semanticRetrieved: semantic.length,
-        episodesRetrieved: episodes.length,
+        memoryItemsWritten: 0,
+        toolChainsWritten: 0,
+        memoryItemsRetrieved: memoryItems.length,
+        toolChainsRetrieved: toolChains.length,
         compiledChars: 0,
         estimatedTokens: 0,
       },
@@ -52,26 +53,34 @@ export class MemoryRetriever {
     };
   }
 
-  private async searchEpisodes(input: MemoryRetrieveInput) {
+  private async searchMemoryItems(input: MemoryRetrieveInput, embedding: number[] | undefined) {
     console.log(
-      `[memory:episodes:search:start] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} project=${input.context.projectId ?? "-"} limit=${this.config.episodicTopK} query=${JSON.stringify(truncate(input.query, 400))}`,
+      `[memory:items:search:start] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} project=${input.context.projectId ?? "-"} limit=${this.config.episodicTopK} query=${JSON.stringify(truncate(input.query, 400))}`,
+    );
+    console.log(
+      `[memory:items:search:embedding] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} enabled=${Boolean(this.embedder)} present=${Boolean(embedding)} dims=${embedding?.length ?? 0} preview=${formatEmbeddingPreview(embedding)}`,
     );
 
-    const embedding = this.embedder ? await safeEmbed(this.embedder, input.query) : undefined;
-    console.log(
-      `[memory:episodes:search:embedding] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} enabled=${Boolean(this.embedder)} present=${Boolean(embedding)} dims=${embedding?.length ?? 0} preview=${formatEmbeddingPreview(embedding)}`,
-    );
-
-    const episodes = await this.episodicStore.searchRelevant(input.context, input.query, {
+    const memoryItems = await this.memoryItemStore.searchRelevant(input.context, input.query, {
       limit: this.config.episodicTopK,
       embedding,
     });
 
     console.log(
-      `[memory:episodes:search:result] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} count=${episodes.length} summaries=${JSON.stringify(episodes.map((episode) => truncate(episode.summary, 160)))}`,
+      `[memory:items:search:result] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} count=${memoryItems.length} summaries=${JSON.stringify(memoryItems.map((item) => truncate(item.summary, 160)))}`,
     );
 
-    return episodes;
+    return memoryItems;
+  }
+
+  private async searchToolChains(input: MemoryRetrieveInput) {
+    const limit = Math.min(3, this.config.episodicTopK);
+    const embedding = this.embedder ? await safeEmbed(this.embedder, input.query) : undefined;
+    const toolChains = await this.toolChainStore.searchRelevant(input.context, input.query, { limit, embedding });
+    console.log(
+      `[memory:tool-chain:search:result] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} count=${toolChains.length} queries=${JSON.stringify(toolChains.map((item) => truncate(item.query, 120)))}`,
+    );
+    return toolChains;
   }
 }
 
