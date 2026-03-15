@@ -32,6 +32,9 @@ export class InMemoryToolChainMemoryStore implements ToolChainMemoryStore {
       createdAt: now,
       updatedAt: now,
     });
+    console.log(
+      `[memory:tool-chain:store] store=in-memory user=${context.userId} agent=${context.agentId} session=${context.sessionId} steps=${input.toolChain.length} query=${JSON.stringify(truncate(input.query, 160))}`,
+    );
   }
 
   list(): ToolChainMemoryRecord[] {
@@ -73,5 +76,12 @@ export class PostgresToolChainMemoryStore implements ToolChainMemoryStore {
         JSON.stringify(input.toolChain),
       ],
     );
+    console.log(
+      `[memory:tool-chain:store] store=postgres user=${context.userId} agent=${context.agentId} session=${context.sessionId} steps=${input.toolChain.length} query=${JSON.stringify(truncate(input.query, 160))}`,
+    );
   }
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }
