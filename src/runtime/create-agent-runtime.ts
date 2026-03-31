@@ -4,6 +4,7 @@ import {
   ToolRegistry,
   createMemorySearchTool,
   createReadFeishuDocTool,
+  createUpdateFeishuDocTool,
   loadSkillsFromDirectory,
   registerBuiltinTools,
   runAgentLoop,
@@ -171,6 +172,7 @@ function createRuntimeToolRegistry(input: {
   const feishuChannel = resolveFeishuChannelConfig(input.channels, input.channelId);
   if (feishuChannel) {
     registry.register(createReadFeishuDocTool(feishuChannel));
+    registry.register(createUpdateFeishuDocTool(feishuChannel));
   }
   return registry;
 }

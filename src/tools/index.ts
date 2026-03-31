@@ -3,7 +3,7 @@ import { execShellTool } from "./exec-shell.js";
 import type { ToolRegistry } from "../core/tool-registry/index.js";
 import { manageProcessTool } from "./process-manager.js";
 import { messageTool } from "./message.js";
-import { createReadFeishuDocTool } from "./read-feishu-doc.js";
+import { createReadFeishuDocTool, createUpdateFeishuDocTool } from "./read-feishu-doc.js";
 import { readFileTool } from "./read-file.js";
 import { readUrlTool } from "./read-url.js";
 import { createMemorySearchTool } from "./search-memory.js";
@@ -22,7 +22,7 @@ export const builtinTools = [
 ];
 
 export { createMemorySearchTool } from "./search-memory.js";
-export { createReadFeishuDocTool } from "./read-feishu-doc.js";
+export { createReadFeishuDocTool, createUpdateFeishuDocTool } from "./read-feishu-doc.js";
 
 export function registerBuiltinTools(registry: ToolRegistry): ToolRegistry {
   for (const tool of builtinTools) {

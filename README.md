@@ -151,6 +151,26 @@ export BRAVE_SEARCH_API_KEY=your_brave_api_key
 
 The tool calls Brave's web search endpoint and returns compact results with `title`, `url`, and `description`.
 
+### Feishu Document Tools
+
+When the current channel is Feishu and valid Feishu app credentials are configured, the runtime also registers:
+
+- `read_feishu_doc`
+- `update_feishu_doc`
+
+`read_feishu_doc` reads a `docx` URL directly, or resolves a `wiki` URL to its backing `docx` document before reading.
+
+`update_feishu_doc` updates Feishu `docx` content from markdown text.
+
+- `mode: "replace"` clears the current document body and writes the new content
+- `mode: "append"` keeps the current document body and appends the new content
+
+Current limits:
+
+- only `docx` is writable
+- `wiki` is supported only when it points to a `docx`
+- `sheet` and `bitable` are not supported yet
+
 ### Message Tool
 
 The built-in `message` tool lets the agent send a structured outbound message through the gateway.
