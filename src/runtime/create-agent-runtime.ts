@@ -3,12 +3,14 @@ import {
   SkillRegistry,
   ToolRegistry,
   createMemorySearchTool,
+  createReadFeishuDocTool,
   loadSkillsFromDirectory,
   registerBuiltinTools,
   runAgentLoop,
   ManualSkillRouter,
 } from "../index.js";
 import type { RuntimeConfig } from "../core/config/agent-config.js";
+import type { StoredFeishuChannelConfig } from "../core/config/config-store.js";
 import type { AgentMessage } from "../core/agent/types.js";
 import { createMemoryService } from "../memory/memory-service.js";
 import { runMemoryMigrations } from "../memory/migrate.js";
@@ -85,6 +87,8 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         projectId: resolvedProjectId,
       };
       const toolRegistry = createRuntimeToolRegistry({
+        channels: config.channels,
+        channelId,
         memoryEnabled: Boolean(config.memory?.enabled),
         memoryService,
         memoryContext,
@@ -148,6 +152,8 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
 }
 
 function createRuntimeToolRegistry(input: {
+  channels: RuntimeConfig["channels"];
+  channelId?: string;
   memoryEnabled: boolean;
   memoryService: ReturnType<typeof createMemoryService>;
   memoryContext: {
@@ -162,7 +168,26 @@ function createRuntimeToolRegistry(input: {
   if (input.memoryEnabled) {
     registry.register(createMemorySearchTool(input.memoryService, input.memoryContext));
   }
+  const feishuChannel = resolveFeishuChannelConfig(input.channels, input.channelId);
+  if (feishuChannel) {
+    registry.register(createReadFeishuDocTool(feishuChannel));
+  }
   return registry;
+}
+
+function resolveFeishuChannelConfig(
+  channels: RuntimeConfig["channels"],
+  channelId?: string,
+): StoredFeishuChannelConfig | undefined {
+  if (channelId) {
+    const exact = channels.find((channel): channel is StoredFeishuChannelConfig =>
+      channel.type === "feishu" && channel.id === channelId);
+    if (exact) {
+      return exact;
+    }
+  }
+
+  return channels.find((channel): channel is StoredFeishuChannelConfig => channel.type === "feishu");
 }
 
 function extractMessageDispatches(toolResults: ToolResultEnvelope[]): MessageDispatch[] {
