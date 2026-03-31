@@ -113,7 +113,7 @@ function parseJson(value: string): unknown {
 }
 
 function normalizeAssistantContent(content: string | null | undefined): string {
-  return stripThinkBlocks(content ?? "").trim();
+  return stripPlanningPreamble(stripThinkBlocks(content ?? "")).trim();
 }
 
 function buildChatCompletionsUrl(baseURL: string): string {
@@ -122,4 +122,43 @@ function buildChatCompletionsUrl(baseURL: string): string {
 
 function stripThinkBlocks(content: string): string {
   return content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
+function stripPlanningPreamble(content: string): string {
+  const paragraphs = content
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) {
+    return "";
+  }
+
+  const filtered = [...paragraphs];
+  while (filtered.length > 1 && looksLikePlanningPreamble(filtered[0] ?? "")) {
+    filtered.shift();
+  }
+
+  return filtered.join("\n\n");
+}
+
+function looksLikePlanningPreamble(paragraph: string): boolean {
+  const normalized = paragraph.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /^we need to\b/,
+    /^i need to\b/,
+    /^need to\b/,
+    /^we should\b/,
+    /^i should\b/,
+    /^let'?s\b/,
+    /^we have\b/,
+    /^the user\b/,
+    /^user (wants|asked|is asking|needs)\b/,
+    /^first[, ]/,
+  ].some((pattern) => pattern.test(normalized))
+    || (normalized.includes("system context") && normalized.includes("user"));
 }

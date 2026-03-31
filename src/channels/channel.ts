@@ -17,6 +17,7 @@ export type ChannelMedia = {
 export type ChannelInboundMessage = {
   session: ChannelSession;
   content: string;
+  media?: ChannelMedia[];
 };
 
 export type ChannelDelivery = {

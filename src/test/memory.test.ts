@@ -9,6 +9,7 @@ import { MemoryRetriever } from "../memory/memory-retriever.js";
 import { MemoryWriter } from "../memory/memory-writer.js";
 import { InMemorySessionStateStore } from "../memory/session-store.js";
 import { InMemoryToolChainMemoryStore } from "../memory/tool-chain-store.js";
+import { createMemorySearchTool } from "../tools/search-memory.js";
 
 const memoryConfig = {
   enabled: true,
@@ -202,6 +203,59 @@ test("memory retriever compiles query memory and tool chains into one block", as
   assert.ok(result.observations.compiledChars > 0);
   assert.equal(result.observations.memoryItemsRetrieved, 1);
   assert.equal(result.observations.toolChainsRetrieved, 1);
+});
+
+test("search_memory tool performs retrieval only when invoked", async () => {
+  let retrieveCalls = 0;
+  const tool = createMemorySearchTool({
+    retrieve: async ({ query }) => {
+      retrieveCalls += 1;
+      return {
+        sessionState: undefined,
+        memoryItems: [{
+          id: "m1",
+          userId: "u1",
+          agentId: "a1",
+          scope: "project",
+          query,
+          summary: "Stored memory",
+          content: "Previous answer and notes.",
+          importance: 0.8,
+          confidence: 0.9,
+          source: "task_summary",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+        toolChains: [],
+        compiledBlock: "[Relevant Memory]\nRelevant user memory:\n- Previous answer and notes.",
+        observations: {
+          memoryItemsWritten: 0,
+          toolChainsWritten: 0,
+          memoryItemsRetrieved: 1,
+          toolChainsRetrieved: 0,
+          compiledChars: 72,
+          estimatedTokens: 18,
+        },
+      };
+    },
+    write: async () => {
+      throw new Error("not used");
+    },
+  }, {
+    sessionId: "s1",
+    userId: "u1",
+    agentId: "a1",
+    projectId: "p1",
+  });
+
+  const result = await tool.execute({ query: "similar issue" }, {
+    traceId: "trace-1",
+    now: () => new Date(),
+  });
+
+  assert.equal(retrieveCalls, 1);
+  assert.equal(result.compiledBlock, "[Relevant Memory]\nRelevant user memory:\n- Previous answer and notes.");
+  assert.equal(result.memoryItems.length, 1);
 });
 
 test("compileRelevantMemoryBlock enforces a prompt budget", () => {

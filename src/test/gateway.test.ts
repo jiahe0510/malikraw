@@ -203,6 +203,48 @@ test("gateway passes structured media through to channels", async () => {
   ]);
 });
 
+test("gateway appends inbound attachment paths to the runtime user request", async () => {
+  const runtimeCalls: { userRequest: string }[] = [];
+
+  const runtime: AgentRuntime = {
+    workspaceRoot: "/tmp/workspace",
+    ask: async ({ userRequest, history }) => {
+      runtimeCalls.push({ userRequest });
+      return {
+        output: "ok",
+        visibleToolNames: [],
+        messages: [
+          ...(history ?? []),
+          { role: "user", content: userRequest },
+          { role: "assistant", content: "ok" },
+        ],
+        media: [],
+        messageDispatches: [],
+      };
+    },
+  };
+
+  const gateway = new Gateway(runtime);
+  gateway.registerChannel({
+    id: "feishu",
+    sendMessage: () => {},
+  });
+
+  await gateway.handleMessage({
+    session: { channelId: "feishu", sessionId: "session-1" },
+    content: "请阅读附件",
+    media: [
+      { kind: "file", path: "/workspace/.runtime/feishu/inbound/a/report.md" },
+      { kind: "image", path: "/workspace/.runtime/feishu/inbound/a/chart.png" },
+    ],
+  });
+
+  assert.equal(
+    runtimeCalls[0]?.userRequest,
+    "请阅读附件\n\nAttachments:\n- /workspace/.runtime/feishu/inbound/a/report.md\n- /workspace/.runtime/feishu/inbound/a/chart.png",
+  );
+});
+
 test("gateway dispatches structured message tool outputs through the target channel", async () => {
   const deliveries: ChannelDelivery[] = [];
 

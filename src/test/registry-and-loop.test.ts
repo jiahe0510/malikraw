@@ -91,6 +91,20 @@ read before edit`));
   assert.match(prompt.messages[3]?.content ?? "", /Workspace AGENT\.md/);
 });
 
+test("buildPrompt omits retrieved memory section when none is injected", () => {
+  const prompt = buildPrompt({
+    globalPolicy: "global policy",
+    userRequest: "hi",
+    activeSkills: [],
+    toolSummary: "- search_memory: search stored memory",
+    stateSummary: "none",
+    memorySummary: "none",
+  });
+
+  const content = prompt.messages.map((message) => message.content).join("\n");
+  assert.doesNotMatch(content, /Retrieved memory:/);
+});
+
 test("buildPrompt rewrites legacy assistant session summary into a synthetic user history message", () => {
   const prompt = buildPrompt({
     globalPolicy: "global policy",

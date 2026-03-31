@@ -1,11 +1,12 @@
 import {
-  ManualSkillRouter,
   OpenAICompatibleModel,
   SkillRegistry,
   ToolRegistry,
+  createMemorySearchTool,
   loadSkillsFromDirectory,
   registerBuiltinTools,
   runAgentLoop,
+  ManualSkillRouter,
 } from "../index.js";
 import type { RuntimeConfig } from "../core/config/agent-config.js";
 import type { AgentMessage } from "../core/agent/types.js";
@@ -54,7 +55,6 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
     await runMemoryMigrations(config.memory.postgresUrl, config.memory.embeddingDimensions);
   }
 
-  const toolRegistry = registerBuiltinTools(new ToolRegistry());
   const skillRegistry = new SkillRegistry();
   const skills = await loadSkillsFromDirectory(getSkillsDirectory());
   for (const skill of skills) {
@@ -77,15 +77,17 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
       const resolvedUserId = userId ?? sessionId ?? "anonymous";
       const resolvedSessionId = sessionId ?? "default";
       const resolvedProjectId = projectId ?? getWorkspaceRoot();
-      const retrievedMemory = await memoryService.retrieve({
-        context: {
-          sessionId: resolvedSessionId,
-          userId: resolvedUserId,
-          agentId: resolvedAgentId,
-          channelId,
-          projectId: resolvedProjectId,
-        },
-        query: userRequest,
+      const memoryContext = {
+        sessionId: resolvedSessionId,
+        userId: resolvedUserId,
+        agentId: resolvedAgentId,
+        channelId,
+        projectId: resolvedProjectId,
+      };
+      const toolRegistry = createRuntimeToolRegistry({
+        memoryEnabled: Boolean(config.memory?.enabled),
+        memoryService,
+        memoryContext,
       });
       const compaction = await compactContextIfNeeded({
         model,
@@ -113,19 +115,12 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         history: compaction.history,
         stateSummary: config.stateSummary,
         memorySummary: config.memorySummary,
-        relevantMemoryBlock: retrievedMemory.compiledBlock,
         maxIterations: config.maxIterations,
         debugModelMessages: config.debugModelMessages,
       });
 
       await memoryService.write({
-        context: {
-          sessionId: resolvedSessionId,
-          userId: resolvedUserId,
-          agentId: resolvedAgentId,
-          channelId,
-          projectId: resolvedProjectId,
-        },
+        context: memoryContext,
         userMessage: userRequest,
         assistantResponse: result.finalOutput,
         toolResults: result.toolResults,
@@ -150,6 +145,24 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
       };
     },
   };
+}
+
+function createRuntimeToolRegistry(input: {
+  memoryEnabled: boolean;
+  memoryService: ReturnType<typeof createMemoryService>;
+  memoryContext: {
+    sessionId: string;
+    userId: string;
+    agentId: string;
+    channelId?: string;
+    projectId?: string;
+  };
+}): ToolRegistry {
+  const registry = registerBuiltinTools(new ToolRegistry());
+  if (input.memoryEnabled) {
+    registry.register(createMemorySearchTool(input.memoryService, input.memoryContext));
+  }
+  return registry;
 }
 
 function extractMessageDispatches(toolResults: ToolResultEnvelope[]): MessageDispatch[] {

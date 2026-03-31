@@ -36,16 +36,18 @@ export class Gateway {
 
     const runtime = this.resolveRuntime(message.session.agentId);
     const history = await this.sessionStore.read(message.session);
+    const userRequest = buildInboundUserRequest(message);
     logGatewayEvent("inbound", {
       agentId: message.session.agentId ?? "default",
       channelId: message.session.channelId,
       sessionId: message.session.sessionId,
       historyLength: history.length,
-      contentPreview: message.content,
+      contentPreview: userRequest,
+      mediaCount: message.media?.length ?? 0,
     });
 
     const result = await runtime.ask({
-      userRequest: message.content,
+      userRequest,
       history,
       sessionId: message.session.sessionId,
       userId: message.session.userId ?? message.session.metadata?.userId,
@@ -135,14 +137,30 @@ function logGatewayEvent(
     contentPreview: string;
     historyLength?: number;
     toolCount?: number;
+    mediaCount?: number;
   },
 ): void {
   const suffix = direction === "inbound"
-    ? `history=${payload.historyLength ?? 0}`
+    ? `history=${payload.historyLength ?? 0} media=${payload.mediaCount ?? 0}`
     : `tools=${payload.toolCount ?? 0}`;
   console.log(
     `[gateway:${direction}] agent=${payload.agentId} channel=${payload.channelId} session=${payload.sessionId} ${suffix} preview=${JSON.stringify(truncate(payload.contentPreview))}`,
   );
+}
+
+function buildInboundUserRequest(message: ChannelInboundMessage): string {
+  const content = message.content.trim();
+  if (!message.media?.length) {
+    return content;
+  }
+
+  const attachmentLines = message.media.map((media) => `- ${media.path}`);
+  const sections = [];
+  if (content) {
+    sections.push(content);
+  }
+  sections.push(["Attachments:", ...attachmentLines].join("\n"));
+  return sections.join("\n\n");
 }
 
 function truncate(value: string, maxLength = 120): string {
