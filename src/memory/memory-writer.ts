@@ -6,7 +6,6 @@ import type {
   MemoryWriteResult,
   SessionStateRecord,
   SessionStateStore,
-  MemoryEmbedder,
   SessionTaskState,
   ToolChainMemoryStore,
   ToolChainStep,
@@ -19,7 +18,6 @@ export class MemoryWriter {
     private readonly toolChainStore: ToolChainMemoryStore,
     private readonly episodeExtractor: EpisodeExtractor,
     private readonly config: MemoryConfig,
-    private readonly embedder?: MemoryEmbedder,
   ) {}
 
   async write(input: MemoryWriteInput): Promise<MemoryWriteResult> {
@@ -34,7 +32,6 @@ export class MemoryWriter {
     const confidence = extracted?.confidence ?? 0.75;
     const shouldStoreMemoryItem = importance >= this.config.importanceThreshold;
     if (shouldStoreMemoryItem) {
-      const embedding = this.embedder ? await safeEmbed(this.embedder, input.userMessage) : undefined;
       await this.memoryItemStore.insert(input.context, {
         query: input.userMessage,
         summary: extracted?.summary ?? truncate(content, 240),
@@ -43,17 +40,16 @@ export class MemoryWriter {
         importance,
         confidence,
         source: input.compaction?.summary ? "history_compaction" : "task_summary",
-      }, embedding);
+      });
     }
 
     const toolChain = buildToolChainSteps(input.toolResults);
     if (toolChain.length > 0) {
-      const embedding = this.embedder ? await safeEmbed(this.embedder, input.userMessage) : undefined;
       await this.toolChainStore.insert(input.context, {
         query: input.userMessage,
         assistantResponse: input.assistantResponse,
         toolChain,
-      }, embedding);
+      });
     }
 
     return {
@@ -124,14 +120,6 @@ function deriveTaskState(input: MemoryWriteInput, now: string): SessionTaskState
     status: openQuestions.length > 0 ? "active" : "completed",
     updatedAt: now,
   };
-}
-
-async function safeEmbed(embedder: MemoryEmbedder, text: string): Promise<number[] | undefined> {
-  try {
-    return await embedder.embed(text);
-  } catch {
-    return undefined;
-  }
 }
 
 function buildMemoryItemContent(input: MemoryWriteInput, summary: string | undefined): string {

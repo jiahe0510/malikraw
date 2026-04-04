@@ -15,10 +15,6 @@ export type StoredSystemConfig = {
 
 export type StoredMemoryConfig = {
   enabled: boolean;
-  postgresUrl?: string;
-  redisUrl?: string;
-  embeddingModel?: string;
-  embeddingDimensions?: number;
   sessionRecentMessages?: number;
   semanticTopK?: number;
   episodicTopK?: number;

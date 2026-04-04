@@ -56,7 +56,6 @@ export type EpisodicMemoryRecord = {
   confidence: number;
   source: MemorySource;
   content: Record<string, unknown>;
-  embedding?: number[];
   createdAt: string;
   updatedAt: string;
 };
@@ -185,10 +184,6 @@ export type MemoryWriteResult = {
 
 export type MemoryConfig = {
   enabled: boolean;
-  postgresUrl?: string;
-  redisUrl?: string;
-  embeddingModel?: string;
-  embeddingDimensions: number;
   sessionRecentMessages: number;
   semanticTopK: number;
   episodicTopK: number;
@@ -217,14 +212,12 @@ export interface EpisodicMemoryStore {
   insert(
     context: MemoryContext,
     episode: EpisodicMemoryCandidate,
-    embedding?: number[],
   ): Promise<void>;
   searchRelevant(
     context: MemoryContext,
     query: string,
     options: {
       limit: number;
-      embedding?: number[];
     },
   ): Promise<EpisodicMemoryRecord[]>;
 }
@@ -233,14 +226,12 @@ export interface MemoryItemStore {
   insert(
     context: MemoryContext,
     item: QueryMemoryItemCandidate,
-    embedding?: number[],
   ): Promise<void>;
   searchRelevant(
     context: MemoryContext,
     query: string,
     options: {
       limit: number;
-      embedding?: number[];
     },
   ): Promise<QueryMemoryItemRecord[]>;
 }
@@ -253,20 +244,14 @@ export interface ToolChainMemoryStore {
       assistantResponse: string;
       toolChain: ToolChainStep[];
     },
-    embedding?: number[],
   ): Promise<void>;
   searchRelevant(
     context: MemoryContext,
     query: string,
     options: {
       limit: number;
-      embedding?: number[];
     },
   ): Promise<ToolChainMemoryRecord[]>;
-}
-
-export interface MemoryEmbedder {
-  embed(input: string): Promise<number[]>;
 }
 
 export interface SemanticExtractor {

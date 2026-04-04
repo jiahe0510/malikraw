@@ -1,12 +1,11 @@
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
-import { OpenAICompatibleEmbedder } from "./embedding-client.js";
 import { HeuristicEpisodeExtractor, LlmEpisodeExtractor } from "./extractors/episode-extractor.js";
 import { OpenAIMemoryClient } from "./extractors/openai-memory-client.js";
-import { PostgresMemoryItemStore } from "./memory-item-store.js";
+import { FileBackedMemoryItemStore } from "./memory-item-store.js";
 import { MemoryRetriever } from "./memory-retriever.js";
 import { MemoryWriter } from "./memory-writer.js";
-import { RedisSessionStateStore } from "./session-store.js";
-import { PostgresToolChainMemoryStore } from "./tool-chain-store.js";
+import { FileBackedSessionStateStore } from "./session-store.js";
+import { FileBackedToolChainMemoryStore } from "./tool-chain-store.js";
 import type { MemoryConfig, MemoryRetrieveInput, MemoryService, MemoryWriteInput } from "./types.js";
 
 export class DefaultMemoryService implements MemoryService {
@@ -91,17 +90,9 @@ export function createMemoryService(
     return new NoopMemoryService();
   }
 
-  const embedder = config.embeddingModel
-    ? new OpenAICompatibleEmbedder({
-      baseURL: modelConfig.baseURL,
-      apiKey: modelConfig.apiKey,
-      model: config.embeddingModel,
-      profile: modelConfig.profile,
-    })
-    : undefined;
-  const sessionStore = RedisSessionStateStore.fromUrl(config.redisUrl!);
-  const memoryItemStore = PostgresMemoryItemStore.fromUrl(config.postgresUrl!);
-  const toolChainStore = PostgresToolChainMemoryStore.fromUrl(config.postgresUrl!);
+  const sessionStore = new FileBackedSessionStateStore();
+  const memoryItemStore = new FileBackedMemoryItemStore();
+  const toolChainStore = new FileBackedToolChainMemoryStore();
 
   const memoryClient = new OpenAIMemoryClient({
     baseURL: modelConfig.baseURL,
@@ -115,14 +106,13 @@ export function createMemoryService(
     : new HeuristicEpisodeExtractor();
 
   return new DefaultMemoryService(
-    new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, config, embedder),
+    new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, config),
     new MemoryWriter(
       sessionStore,
       memoryItemStore,
       toolChainStore,
       episodeExtractor,
       config,
-      embedder,
     ),
   );
 }

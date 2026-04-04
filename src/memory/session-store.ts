@@ -1,12 +1,8 @@
-import { createClient } from "redis";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 
+import { getMalikrawHomeDirectory } from "../core/config/config-store.js";
 import type { MemoryContext, SessionStateRecord, SessionStateStore } from "./types.js";
-
-type StringKeyValueClient = {
-  connect(): Promise<unknown>;
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string): Promise<unknown>;
-};
 
 export class InMemorySessionStateStore implements SessionStateStore {
   private readonly records = new Map<string, SessionStateRecord>();
@@ -20,39 +16,43 @@ export class InMemorySessionStateStore implements SessionStateStore {
   }
 }
 
-export class RedisSessionStateStore implements SessionStateStore {
-  private connected = false;
-
+export class FileBackedSessionStateStore implements SessionStateStore {
   constructor(
-    private readonly client: StringKeyValueClient,
-    private readonly keyPrefix = "malikraw:session-state:",
+    private readonly filePath = path.join(getMemoryStoreDirectory(), "session-state.json"),
   ) {}
 
-  static fromUrl(redisUrl: string): RedisSessionStateStore {
-    return new RedisSessionStateStore(createClient({ url: redisUrl }) as unknown as StringKeyValueClient);
-  }
-
   async read(context: MemoryContext): Promise<SessionStateRecord | undefined> {
-    await this.ensureConnected();
-    const raw = await this.client.get(this.keyFor(context));
-    return raw ? JSON.parse(raw) as SessionStateRecord : undefined;
+    const records = await this.readAll();
+    return records[buildSessionStateKey(context)];
   }
 
   async write(record: SessionStateRecord): Promise<void> {
-    await this.ensureConnected();
-    await this.client.set(this.keyFor(record), JSON.stringify(record));
+    const records = await this.readAll();
+    records[buildSessionStateKey(record)] = record;
+    await this.writeAll(records);
   }
 
-  private keyFor(context: Pick<MemoryContext, "sessionId" | "agentId" | "userId">): string {
-    return `${this.keyPrefix}${context.userId}:${context.agentId}:${context.sessionId}`;
-  }
-
-  private async ensureConnected(): Promise<void> {
-    if (!this.connected) {
-      await this.client.connect();
-      this.connected = true;
+  private async readAll(): Promise<Record<string, SessionStateRecord>> {
+    try {
+      const raw = await readFile(this.filePath, "utf8");
+      return JSON.parse(raw) as Record<string, SessionStateRecord>;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        return {};
+      }
+      throw error;
     }
   }
+
+  private async writeAll(records: Record<string, SessionStateRecord>): Promise<void> {
+    await mkdir(path.dirname(this.filePath), { recursive: true });
+    await writeFile(this.filePath, `${JSON.stringify(records, null, 2)}\n`, "utf8");
+  }
+}
+
+export function getMemoryStoreDirectory(): string {
+  return path.join(getMalikrawHomeDirectory(), ".runtime", "memory");
 }
 
 function buildSessionStateKey(context: Pick<MemoryContext, "sessionId" | "agentId" | "userId">): string {

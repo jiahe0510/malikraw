@@ -13,7 +13,6 @@ import { createMemorySearchTool } from "../tools/search-memory.js";
 
 const memoryConfig = {
   enabled: true,
-  embeddingDimensions: 1536,
   sessionRecentMessages: 4,
   semanticTopK: 6,
   episodicTopK: 4,
@@ -151,7 +150,7 @@ test("memory retriever compiles query memory and tool chains into one block", as
         goal: "Implement memory",
         currentPlan: ["Add stores", "Integrate runtime"],
         completedSteps: ["Add schema"],
-        openQuestions: ["How to configure Redis?"],
+        openQuestions: ["How should the local memory files be organized?"],
         status: "active",
         updatedAt: new Date().toISOString(),
       },
@@ -160,7 +159,7 @@ test("memory retriever compiles query memory and tool chains into one block", as
   await memoryItemStore.insert(context, {
     query: "How should we implement memory?",
     summary: "Memory implementation plan",
-    content: "Use Redis and Postgres and stage the implementation in three phases.",
+    content: "Use local JSON stores and stage the implementation in three phases.",
     scope: "project",
     importance: 0.9,
     confidence: 0.8,
@@ -169,7 +168,7 @@ test("memory retriever compiles query memory and tool chains into one block", as
 
   await toolChainStore.insert(context, {
     query: "How should we implement memory?",
-    assistantResponse: "Use Redis and Postgres, then run migrations.",
+    assistantResponse: "Use local JSON stores, then initialize the memory directory.",
     toolChain: [
       {
         toolName: "read_file",
@@ -196,7 +195,7 @@ test("memory retriever compiles query memory and tool chains into one block", as
 
   assert.match(result.compiledBlock, /\[Relevant Memory\]/);
   assert.match(result.compiledBlock, /Relevant user memory/);
-  assert.match(result.compiledBlock, /Use Redis and Postgres and stage the implementation/);
+  assert.match(result.compiledBlock, /Use local JSON stores and stage the implementation/);
   assert.match(result.compiledBlock, /Reusable tool chains/);
   assert.match(result.compiledBlock, /read_file -> edit_file/);
   assert.match(result.compiledBlock, /Goal: Implement memory/);

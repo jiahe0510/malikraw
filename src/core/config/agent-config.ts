@@ -238,29 +238,8 @@ function normalizeMemoryConfig(stored: StoredMemoryConfig | undefined): MemoryCo
     return undefined;
   }
 
-  if (stored.enabled) {
-    const postgresUrl = stored.postgresUrl?.trim();
-    const redisUrl = stored.redisUrl?.trim();
-    if (!postgresUrl) {
-      throw new Error(
-        "Enhanced memory is enabled but memory.postgresUrl is missing. "
-        + "Run `malikraw onboard` and set Enhanced memory Postgres URL.",
-      );
-    }
-    if (!redisUrl) {
-      throw new Error(
-        "Enhanced memory is enabled but memory.redisUrl is missing. "
-        + "Run `malikraw onboard` and set Enhanced memory Redis URL.",
-      );
-    }
-  }
-
   return {
     enabled: stored.enabled,
-    postgresUrl: stored.postgresUrl?.trim() || undefined,
-    redisUrl: stored.redisUrl?.trim() || undefined,
-    embeddingModel: stored.embeddingModel,
-    embeddingDimensions: stored.embeddingDimensions ?? 1536,
     sessionRecentMessages: stored.sessionRecentMessages ?? 8,
     semanticTopK: stored.semanticTopK ?? 6,
     episodicTopK: stored.episodicTopK ?? 4,

@@ -68,10 +68,6 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
       },
       memory: {
         enabled: true,
-        postgresUrl: "postgres://localhost:5432/malikraw",
-        redisUrl: "redis://127.0.0.1:6379",
-        embeddingModel: "text-embedding-3-small",
-        embeddingDimensions: 1536,
         sessionRecentMessages: 6,
         semanticTopK: 4,
         episodicTopK: 3,
@@ -108,9 +104,6 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
     assert.equal(config.debugModelMessages, false);
     assert.equal(config.gatewayPort, 6060);
     assert.equal(config.memory?.enabled, true);
-    assert.equal(config.memory?.postgresUrl, "postgres://localhost:5432/malikraw");
-    assert.equal(config.memory?.redisUrl, "redis://127.0.0.1:6379");
-    assert.equal(config.memory?.embeddingModel, "text-embedding-3-small");
     assert.equal(config.memory?.sessionRecentMessages, 6);
     assert.equal(config.defaultAgentId, "primary");
     assert.deepEqual(config.channels, [{
@@ -243,7 +236,7 @@ test("loadRuntimeConfig ignores OPENAI environment variables and uses stored con
   }
 });
 
-test("loadRuntimeConfig fails clearly when enhanced memory is enabled without postgres", async () => {
+test("loadRuntimeConfig accepts local enhanced memory without database URLs", async () => {
   const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-home-"));
   const previousHome = process.env.MALIKRAW_HOME;
   process.env.MALIKRAW_HOME = malikrawHome;
@@ -285,7 +278,7 @@ test("loadRuntimeConfig fails clearly when enhanced memory is enabled without po
       tools: {},
       memory: {
         enabled: true,
-        redisUrl: "redis://127.0.0.1:6379",
+        sessionRecentMessages: 5,
       },
       agents: {
         defaultAgentId: "primary",
@@ -297,77 +290,9 @@ test("loadRuntimeConfig fails clearly when enhanced memory is enabled without po
       },
     });
 
-    assert.throws(
-      () => loadRuntimeConfig(),
-      /Enhanced memory is enabled but memory\.postgresUrl is missing/,
-    );
-  } finally {
-    if (previousHome === undefined) {
-      delete process.env.MALIKRAW_HOME;
-    } else {
-      process.env.MALIKRAW_HOME = previousHome;
-    }
-  }
-});
-
-test("loadRuntimeConfig fails clearly when enhanced memory is enabled without redis", async () => {
-  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-home-"));
-  const previousHome = process.env.MALIKRAW_HOME;
-  process.env.MALIKRAW_HOME = malikrawHome;
-
-  try {
-    saveConfigBundle({
-      system: {
-        gatewayPort: 6060,
-        maxIterations: 8,
-        debugModelMessages: false,
-      },
-      providers: {
-        defaultProviderId: "default",
-        providers: [{
-          id: "default",
-          baseURL: "https://stored.example/v1",
-          apiKey: "stored-key",
-          model: "stored-model",
-          profile: "openai",
-        }],
-      },
-      agentProviderMapping: {
-        defaultProviderId: "default",
-        mappings: {
-          primary: "default",
-        },
-      },
-      workspace: {
-        workspaceRoot: path.join(malikrawHome, "workspace"),
-      },
-      channels: {
-        defaultChannelId: "http",
-        channels: [{
-          id: "http",
-          type: "http",
-          agentId: "primary",
-        }],
-      },
-      tools: {},
-      memory: {
-        enabled: true,
-        postgresUrl: "postgres://localhost:5432/malikraw",
-      },
-      agents: {
-        defaultAgentId: "primary",
-        agents: [{
-          id: "primary",
-          activeSkillIds: ["workspace_operator"],
-          providerId: "default",
-        }],
-      },
-    });
-
-    assert.throws(
-      () => loadRuntimeConfig(),
-      /Enhanced memory is enabled but memory\.redisUrl is missing/,
-    );
+    const config = loadRuntimeConfig();
+    assert.equal(config.memory?.enabled, true);
+    assert.equal(config.memory?.sessionRecentMessages, 5);
   } finally {
     if (previousHome === undefined) {
       delete process.env.MALIKRAW_HOME;

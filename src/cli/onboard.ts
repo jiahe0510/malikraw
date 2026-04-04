@@ -48,7 +48,7 @@ export async function runOnboardWizard(): Promise<void> {
   const defaultAgentId = agents[0]?.id ?? "main";
   const channels = await collectChannels(existing.channels?.channels ?? [], defaultAgentId, agents.map((agent) => agent.id));
   const tools = await collectToolsConfig(existing.tools);
-  const memory = await collectMemoryConfig(existing.memory, provider.model);
+  const memory = await collectMemoryConfig(existing.memory);
   const gatewayPort = await promptRequiredNumber(
     "Gateway port",
     String(existing.system?.gatewayPort ?? 5050),
@@ -333,7 +333,6 @@ async function collectToolsConfig(existingTools: StoredToolsConfig | undefined):
 
 async function collectMemoryConfig(
   existingMemory: StoredMemoryConfig | undefined,
-  defaultEmbeddingModel: string,
 ): Promise<StoredMemoryConfig> {
   const selectedMode = await promptSelectWithDefault<MemorySelection>(
     "Select memory mode",
@@ -354,10 +353,6 @@ async function collectMemoryConfig(
   if (!enableEnhanced) {
     return {
       enabled: false,
-      postgresUrl: existingMemory?.postgresUrl,
-      redisUrl: existingMemory?.redisUrl,
-      embeddingModel: existingMemory?.embeddingModel,
-      embeddingDimensions: existingMemory?.embeddingDimensions,
       sessionRecentMessages: existingMemory?.sessionRecentMessages,
       semanticTopK: existingMemory?.semanticTopK,
       episodicTopK: existingMemory?.episodicTopK,
@@ -368,19 +363,6 @@ async function collectMemoryConfig(
 
   return {
     enabled: true,
-    postgresUrl: emptyToUndefined(
-      await promptText("Enhanced memory Postgres URL", existingMemory?.postgresUrl || "postgres://localhost:5432/malikraw"),
-    ),
-    redisUrl: emptyToUndefined(
-      await promptText("Enhanced memory Redis URL", existingMemory?.redisUrl || "redis://127.0.0.1:6379"),
-    ),
-    embeddingModel: emptyToUndefined(
-      await promptText("Enhanced memory embedding model", existingMemory?.embeddingModel || defaultEmbeddingModel),
-    ),
-    embeddingDimensions: await promptRequiredNumber(
-      "Embedding dimensions",
-      String(existingMemory?.embeddingDimensions ?? 1536),
-    ),
     sessionRecentMessages: await promptRequiredNumber(
       "Session recent messages",
       String(existingMemory?.sessionRecentMessages ?? 8),

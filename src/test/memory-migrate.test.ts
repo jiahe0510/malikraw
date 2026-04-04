@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { loadRuntimeConfig, saveConfigBundle } from "../index.js";
 
-test("loadRuntimeConfig keeps configured embedding dimensions", async () => {
+test("loadRuntimeConfig keeps memory config without embedding options", async () => {
   const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-memory-home-"));
   const previousHome = process.env.MALIKRAW_HOME;
   process.env.MALIKRAW_HOME = malikrawHome;
@@ -42,10 +42,8 @@ test("loadRuntimeConfig keeps configured embedding dimensions", async () => {
       tools: {},
       memory: {
         enabled: true,
-        postgresUrl: "postgres://localhost:5432/malikraw",
-        redisUrl: "redis://127.0.0.1:6379",
-        embeddingModel: "text-embedding-nomic-embed-text-v1.5",
-        embeddingDimensions: 768,
+        sessionRecentMessages: 10,
+        episodicTopK: 5,
       },
       agents: {
         defaultAgentId: "main",
@@ -58,7 +56,8 @@ test("loadRuntimeConfig keeps configured embedding dimensions", async () => {
     });
 
     const config = loadRuntimeConfig();
-    assert.equal(config.memory?.embeddingDimensions, 768);
+    assert.equal(config.memory?.sessionRecentMessages, 10);
+    assert.equal(config.memory?.episodicTopK, 5);
   } finally {
     if (previousHome === undefined) {
       delete process.env.MALIKRAW_HOME;

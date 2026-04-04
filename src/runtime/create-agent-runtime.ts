@@ -54,8 +54,8 @@ export type AgentRuntime = {
 export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRuntime> {
   setWorkspaceRoot(config.workspaceRoot);
   await ensureWorkspaceInitialized();
-  if (config.memory?.enabled && config.memory.postgresUrl) {
-    await runMemoryMigrations(config.memory.postgresUrl, config.memory.embeddingDimensions);
+  if (config.memory?.enabled) {
+    await runMemoryMigrations();
   }
 
   const skillRegistry = new SkillRegistry();

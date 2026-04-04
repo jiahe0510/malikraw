@@ -8,7 +8,7 @@ Minimal agent runtime with:
 - workspace-backed agent prompt context
 - channel-based gateway routing
 - explicit message/media dispatch tool
-- enhanced memory with Redis + Postgres
+- file-backed enhanced memory
 
 ## Requirements
 
@@ -192,20 +192,16 @@ Media paths are resolved inside the workspace and validated before dispatch.
 
 ## Enhanced Memory
 
-Enhanced memory is split across Redis and Postgres.
+Enhanced memory is local-only.
 
-### What Redis Does
+### What The Local Store Does
 
-Redis stores session state:
+Malikraw stores memory under `MALIKRAW_HOME/.runtime/memory` as local JSON files.
+
+It keeps:
 
 - recent messages for a session
 - current task state
-- fast lookups during an active conversation
-
-### What Postgres Does
-
-Postgres stores two query-indexed tables:
-
 - `memory_items`
   - each row stores a user query and a memory content block derived from that turn
   - retrieval uses the new user query to match similar past queries
@@ -215,26 +211,11 @@ Postgres stores two query-indexed tables:
   - retrieval also uses the new user query to match similar past queries
   - the matched tool chains are injected into the prompt as reusable tool paths
 
-This is the durable layer. It survives restarts and is used for cross-session recall.
-
-### What pgvector Does
-
-`pgvector` improves query matching for both tables.
-
-Without `pgvector`:
-
-- retrieval falls back to text matching on stored queries and content
-
-With `pgvector`:
-
-- user queries can be embedded
-- the system can match semantically similar past queries instead of only keyword matches
-
-If `pgvector` is unavailable, enhanced memory still works. You only lose vector similarity search.
+This local store survives restarts and does not require Redis, Postgres, or any external database.
 
 ### What The Model Gets
 
-- recent local context from Redis-backed session state
+- recent local context from file-backed session state
 - matched memory content from `memory_items`
 - matched tool chains from `memory_tool_chain`
 
@@ -260,7 +241,6 @@ When runtime compaction triggers:
 - recent history is aligned to a `user` boundary
 - compaction guidance is read from workspace `COMPACT.md` by default
 - compacted information is also written into `memory_items`
-- if embeddings are enabled, it is indexed by the query embedding for later retrieval
 - if the model still returns a context-length error at runtime, malikraw performs one more reactive compact pass and retries automatically
 
 This keeps the active prompt smaller without dropping older context completely.
