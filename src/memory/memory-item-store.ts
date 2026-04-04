@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { readJsonFile, withFileLock, writeJsonFileAtomic } from "./file-store.js";
+import { recordRuntimeObservation } from "../core/observability/observability.js";
 import type {
   MemoryContext,
   MemoryItemStore,
@@ -32,9 +33,17 @@ export class InMemoryMemoryItemStore implements MemoryItemStore {
       createdAt: now,
       updatedAt: now,
     });
-    console.log(
-      `[memory:items:store] store=in-memory user=${context.userId} agent=${context.agentId} session=${context.sessionId} query=${JSON.stringify(truncate(item.query, 160))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.items.store",
+      message: "Stored a query-indexed memory item.",
+      data: {
+        store: "in-memory",
+        userId: context.userId,
+        agentId: context.agentId,
+        sessionId: context.sessionId,
+        query: truncate(item.query, 160),
+      },
+    });
   }
 
   async searchRelevant(
@@ -43,9 +52,19 @@ export class InMemoryMemoryItemStore implements MemoryItemStore {
     options: { limit: number },
   ): Promise<QueryMemoryItemRecord[]> {
     const results = searchRecords(this.records, context, query, options.limit);
-    console.log(
-      `[memory:items:search] store=in-memory user=${context.userId} agent=${context.agentId} session=${context.sessionId} count=${results.length} limit=${options.limit} query=${JSON.stringify(truncate(query, 160))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.items.search",
+      message: "Searched query-indexed memory items.",
+      data: {
+        store: "in-memory",
+        userId: context.userId,
+        agentId: context.agentId,
+        sessionId: context.sessionId,
+        count: results.length,
+        limit: options.limit,
+        query: truncate(query, 160),
+      },
+    });
     return results;
   }
 
@@ -79,9 +98,17 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
       });
       await this.writeAll(records);
     });
-    console.log(
-      `[memory:items:store] store=file user=${context.userId} agent=${context.agentId} session=${context.sessionId} query=${JSON.stringify(truncate(item.query, 160))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.items.store",
+      message: "Stored a query-indexed memory item.",
+      data: {
+        store: "file",
+        userId: context.userId,
+        agentId: context.agentId,
+        sessionId: context.sessionId,
+        query: truncate(item.query, 160),
+      },
+    });
   }
 
   async searchRelevant(
@@ -91,9 +118,19 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
   ): Promise<QueryMemoryItemRecord[]> {
     const records = await this.readAll();
     const results = searchRecords(records, context, query, options.limit);
-    console.log(
-      `[memory:items:search] store=file user=${context.userId} agent=${context.agentId} session=${context.sessionId} count=${results.length} limit=${options.limit} query=${JSON.stringify(truncate(query, 160))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.items.search",
+      message: "Searched query-indexed memory items.",
+      data: {
+        store: "file",
+        userId: context.userId,
+        agentId: context.agentId,
+        sessionId: context.sessionId,
+        count: results.length,
+        limit: options.limit,
+        query: truncate(query, 160),
+      },
+    });
     return results;
   }
 

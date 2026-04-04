@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { readJsonFile, withFileLock, writeJsonFileAtomic } from "./file-store.js";
+import { recordRuntimeObservation } from "../core/observability/observability.js";
 import type { MemoryContext, ToolChainMemoryRecord, ToolChainMemoryStore, ToolChainStep } from "./types.js";
 import { getMemoryStoreDirectory } from "./session-store.js";
 
@@ -29,9 +30,18 @@ export class InMemoryToolChainMemoryStore implements ToolChainMemoryStore {
       createdAt: now,
       updatedAt: now,
     });
-    console.log(
-      `[memory:tool-chain:store] store=in-memory user=${context.userId} agent=${context.agentId} session=${context.sessionId} steps=${input.toolChain.length} query=${JSON.stringify(truncate(input.query, 160))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.tool_chain.store",
+      message: "Stored a reusable tool chain.",
+      data: {
+        store: "in-memory",
+        userId: context.userId,
+        agentId: context.agentId,
+        sessionId: context.sessionId,
+        steps: input.toolChain.length,
+        query: truncate(input.query, 160),
+      },
+    });
   }
 
   list(): ToolChainMemoryRecord[] {
@@ -44,9 +54,19 @@ export class InMemoryToolChainMemoryStore implements ToolChainMemoryStore {
     options: { limit: number },
   ): Promise<ToolChainMemoryRecord[]> {
     const results = searchRecords(this.records, context, query, options.limit);
-    console.log(
-      `[memory:tool-chain:search] store=in-memory user=${context.userId} agent=${context.agentId} session=${context.sessionId} count=${results.length} limit=${options.limit} query=${JSON.stringify(truncate(query, 160))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.tool_chain.search",
+      message: "Searched reusable tool chains.",
+      data: {
+        store: "in-memory",
+        userId: context.userId,
+        agentId: context.agentId,
+        sessionId: context.sessionId,
+        count: results.length,
+        limit: options.limit,
+        query: truncate(query, 160),
+      },
+    });
     return results;
   }
 }
@@ -81,9 +101,18 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
       });
       await this.writeAll(records);
     });
-    console.log(
-      `[memory:tool-chain:store] store=file user=${context.userId} agent=${context.agentId} session=${context.sessionId} steps=${input.toolChain.length} query=${JSON.stringify(truncate(input.query, 160))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.tool_chain.store",
+      message: "Stored a reusable tool chain.",
+      data: {
+        store: "file",
+        userId: context.userId,
+        agentId: context.agentId,
+        sessionId: context.sessionId,
+        steps: input.toolChain.length,
+        query: truncate(input.query, 160),
+      },
+    });
   }
 
   async searchRelevant(
@@ -93,9 +122,19 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
   ): Promise<ToolChainMemoryRecord[]> {
     const records = await this.readAll();
     const results = searchRecords(records, context, query, options.limit);
-    console.log(
-      `[memory:tool-chain:search] store=file user=${context.userId} agent=${context.agentId} session=${context.sessionId} count=${results.length} limit=${options.limit} query=${JSON.stringify(truncate(query, 160))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.tool_chain.search",
+      message: "Searched reusable tool chains.",
+      data: {
+        store: "file",
+        userId: context.userId,
+        agentId: context.agentId,
+        sessionId: context.sessionId,
+        count: results.length,
+        limit: options.limit,
+        query: truncate(query, 160),
+      },
+    });
     return results;
   }
 

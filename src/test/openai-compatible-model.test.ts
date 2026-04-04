@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ModelRequestError, OpenAICompatibleModel, type AgentMessage } from "../index.js";
+import {
+  createTextMessage,
+  ModelRequestError,
+  OpenAICompatibleModel,
+  type AgentMessage,
+} from "../index.js";
 
 test("OpenAICompatibleModel strips <think> blocks from final output", async () => {
   const originalFetch = globalThis.fetch;
@@ -38,6 +43,58 @@ test("OpenAICompatibleModel strips <think> blocks from final output", async () =
       type: "final",
       outputText: "hello",
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("OpenAICompatibleModel sends block-aware content parts in request bodies", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | undefined;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: "ok",
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const model = new OpenAICompatibleModel({
+      baseURL: "https://example.invalid/v1",
+      apiKey: "dummy",
+      model: "test-model",
+      contextWindow: 8192,
+      compact: {
+        thresholdTokens: 4096,
+        targetTokens: 2048,
+      },
+    });
+
+    await model.generate({
+      messages: [{
+        ...createTextMessage("user", "line 1"),
+        contentBlocks: [
+          { type: "text", text: "line 1" },
+          { type: "text", text: "line 2" },
+        ],
+      } satisfies AgentMessage],
+      tools: [],
+    });
+
+    assert.deepEqual(requestBody?.messages, [{
+      role: "user",
+      content: [
+        { type: "text", text: "line 1" },
+        { type: "text", text: "line 2" },
+      ],
+    }]);
   } finally {
     globalThis.fetch = originalFetch;
   }

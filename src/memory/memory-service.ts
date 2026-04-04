@@ -1,4 +1,5 @@
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
+import { recordRuntimeObservation } from "../core/observability/observability.js";
 import { HeuristicEpisodeExtractor, LlmEpisodeExtractor } from "./extractors/episode-extractor.js";
 import { OpenAIMemoryClient } from "./extractors/openai-memory-client.js";
 import { FileBackedMemoryItemStore } from "./memory-item-store.js";
@@ -16,17 +17,36 @@ export class DefaultMemoryService implements MemoryService {
 
   async retrieve(input: MemoryRetrieveInput) {
     const result = await this.retriever.retrieve(input);
-    console.log(
-      `[memory:retrieve] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} memory_items=${result.observations.memoryItemsRetrieved} tool_chains=${result.observations.toolChainsRetrieved} chars=${result.observations.compiledChars} est_tokens=${result.observations.estimatedTokens}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.retrieve",
+      message: "Retrieved relevant memory for the current query.",
+      data: {
+        userId: input.context.userId,
+        agentId: input.context.agentId,
+        sessionId: input.context.sessionId,
+        memoryItems: result.observations.memoryItemsRetrieved,
+        toolChains: result.observations.toolChainsRetrieved,
+        compiledChars: result.observations.compiledChars,
+        estimatedTokens: result.observations.estimatedTokens,
+        query: input.query,
+      },
+    });
     return result;
   }
 
   async write(input: MemoryWriteInput) {
     const result = await this.writer.write(input);
-    console.log(
-      `[memory:write] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} memory_items=${result.memoryItemsWritten} tool_chains=${result.toolChainsWritten}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.write",
+      message: "Persisted memory artifacts for the completed turn.",
+      data: {
+        userId: input.context.userId,
+        agentId: input.context.agentId,
+        sessionId: input.context.sessionId,
+        memoryItems: result.memoryItemsWritten,
+        toolChains: result.toolChainsWritten,
+      },
+    });
     return result;
   }
 }

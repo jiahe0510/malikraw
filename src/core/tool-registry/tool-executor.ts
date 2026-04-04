@@ -1,5 +1,6 @@
 import { validateSchema } from "./schema.js";
 import type { Schema } from "./schema.js";
+import { recordRuntimeObservation } from "../observability/observability.js";
 import type {
   ToolError,
   ToolExecuteOptions,
@@ -37,9 +38,15 @@ export async function executeTool<TResult = unknown>(input: {
     at: startedAt.toISOString(),
     input: input.rawInput,
   });
-  console.log(
-    `[tool:start] name=${input.toolName} trace=${traceId} input=${formatForLog(input.rawInput)}`,
-  );
+  recordRuntimeObservation({
+    name: "tool.call.start",
+    message: "Tool execution started.",
+    data: {
+      toolName: input.toolName,
+      traceId,
+      input: formatForLog(input.rawInput),
+    },
+  });
 
   const validation = validateSchema(input.tool.inputSchema, input.rawInput);
   if (!validation.ok) {
@@ -68,9 +75,16 @@ export async function executeTool<TResult = unknown>(input: {
       durationMs,
       output: data,
     });
-    console.log(
-      `[tool:success] name=${input.toolName} trace=${traceId} duration_ms=${durationMs} output=${formatForLog(data)}`,
-    );
+    recordRuntimeObservation({
+      name: "tool.call.success",
+      message: "Tool execution succeeded.",
+      data: {
+        toolName: input.toolName,
+        traceId,
+        durationMs,
+        output: formatForLog(data),
+      },
+    });
 
     return {
       toolName: input.toolName,
@@ -103,9 +117,17 @@ function fail(
     durationMs,
     error,
   });
-  console.log(
-    `[tool:fail] name=${toolName} trace=${traceId} duration_ms=${durationMs} error=${formatForLog(error)}`,
-  );
+  recordRuntimeObservation({
+    name: "tool.call.fail",
+    level: "error",
+    message: "Tool execution failed.",
+    data: {
+      toolName,
+      traceId,
+      durationMs,
+      error: formatForLog(error),
+    },
+  });
 
   return {
     toolName,

@@ -1,5 +1,5 @@
 import type { ProviderProfile } from "../../core/providers/compatibility-profile.js";
-import { normalizeMessagesForProfile, type TransportMessage } from "../../core/providers/index.js";
+import type { TransportMessage } from "../../core/providers/index.js";
 
 type ChatCompletionConfig = {
   baseURL: string;
@@ -29,7 +29,12 @@ export class OpenAIMemoryClient {
       },
       body: JSON.stringify({
         model: this.config.model,
-        messages: normalizeMessagesForProfile(messages, this.config.profile),
+        messages: messages.map((message) => ({
+          ...message,
+          content: Array.isArray(message.content) && message.content.length <= 1
+            ? (message.content[0]?.text ?? "")
+            : message.content,
+        })),
         temperature: this.config.temperature ?? 0,
       }),
     });

@@ -77,7 +77,7 @@ malikraw status
 ```
 
 The gateway listens on `127.0.0.1:<gatewayPort>`. Default port is `5050`.
-Service metadata and logs are stored under `~/.malikraw/.runtime/service/`.
+Service metadata and logs are stored under `~/.malikraw/log/service/`.
 
 Health check:
 
@@ -189,6 +189,11 @@ Each media item supports:
 - optional `caption`
 
 Media paths are resolved inside the workspace and validated before dispatch.
+
+Runtime observability files are stored under:
+
+- `~/.malikraw/log/runtime.log`
+- `~/.malikraw/event/runtime.jsonl`
 
 ## Enhanced Memory
 

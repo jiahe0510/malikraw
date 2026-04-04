@@ -6,11 +6,20 @@ import type {
   ModelTurnResponse,
 } from "../core/agent/types.js";
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
-import { normalizeMessagesForProfile, type TransportMessage } from "../core/providers/index.js";
+import {
+  normalizeMessagesForProfile,
+  type TransportContentPart,
+  type TransportMessage,
+} from "../core/providers/index.js";
 
 type OpenAIChatCompletionRequest = {
   model: string;
-  messages: TransportMessage[];
+  messages: Array<{
+    role: TransportMessage["role"];
+    content: string | TransportContentPart[];
+    tool_call_id?: string;
+    name?: string;
+  }>;
   tools?: Array<Record<string, unknown>>;
   tool_choice?: "auto";
   temperature?: number;
@@ -110,7 +119,10 @@ export class OpenAICompatibleModel implements AgentModel {
 function buildRequestBody(config: OpenAICompatibleConfig, input: AgentModelRequest): OpenAIChatCompletionRequest {
   return {
     model: config.model,
-    messages: normalizeMessagesForProfile(input.messages, config.profile),
+    messages: normalizeMessagesForProfile(input.messages, config.profile).map((message) => ({
+      ...message,
+      content: normalizeTransportContent(message.content),
+    })),
     tools: input.tools,
     tool_choice: input.tools.length > 0 ? "auto" : undefined,
     temperature: config.temperature,
@@ -140,6 +152,14 @@ function normalizeAssistantContent(content: string | null | undefined): string {
 
 function buildChatCompletionsUrl(baseURL: string): string {
   return `${baseURL.replace(/\/+$/, "")}/chat/completions`;
+}
+
+function normalizeTransportContent(content: string | TransportContentPart[]): string | TransportContentPart[] {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return content.length <= 1 ? (content[0]?.text ?? "") : content;
 }
 
 function looksLikeContextLengthFailure(status: number, body: string): boolean {

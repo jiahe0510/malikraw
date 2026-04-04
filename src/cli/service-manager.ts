@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { getMalikrawHomeDirectory } from "../core/config/config-store.js";
+import { getLogDirectory } from "../core/observability/observability.js";
 
 type ServiceMetadata = {
   pid: number;
@@ -122,7 +122,7 @@ export function getServiceLogPath(): string {
 }
 
 function getServiceDirectory(): string {
-  return path.join(getMalikrawHomeDirectory(), ".runtime", "service");
+  return path.join(getLogDirectory(), "service");
 }
 
 function ensureServiceDirectory(): void {

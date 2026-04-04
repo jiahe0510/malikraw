@@ -1,4 +1,5 @@
 import { compileRelevantMemoryBlock } from "./memory-compiler.js";
+import { recordRuntimeObservation } from "../core/observability/observability.js";
 import type {
   MemoryConfig,
   MemoryItemStore,
@@ -51,27 +52,63 @@ export class MemoryRetriever {
   }
 
   private async searchMemoryItems(input: MemoryRetrieveInput) {
-    console.log(
-      `[memory:items:search:start] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} project=${input.context.projectId ?? "-"} limit=${this.config.episodicTopK} query=${JSON.stringify(truncate(input.query, 400))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.search.items.start",
+      message: "Searching stored memory items.",
+      data: {
+        userId: input.context.userId,
+        agentId: input.context.agentId,
+        sessionId: input.context.sessionId,
+        projectId: input.context.projectId ?? "-",
+        limit: this.config.episodicTopK,
+        query: truncate(input.query, 400),
+      },
+    });
 
     const memoryItems = await this.memoryItemStore.searchRelevant(input.context, input.query, {
       limit: this.config.episodicTopK,
     });
 
-    console.log(
-      `[memory:items:search:result] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} count=${memoryItems.length} summaries=${JSON.stringify(memoryItems.map((item) => truncate(item.summary, 160)))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.search.items.result",
+      message: "Finished searching stored memory items.",
+      data: {
+        userId: input.context.userId,
+        agentId: input.context.agentId,
+        sessionId: input.context.sessionId,
+        count: memoryItems.length,
+        summaries: memoryItems.map((item) => truncate(item.summary, 160)),
+      },
+    });
 
     return memoryItems;
   }
 
   private async searchToolChains(input: MemoryRetrieveInput) {
     const limit = Math.min(3, this.config.episodicTopK);
+    recordRuntimeObservation({
+      name: "memory.search.tool_chain.start",
+      message: "Searching reusable tool chains.",
+      data: {
+        userId: input.context.userId,
+        agentId: input.context.agentId,
+        sessionId: input.context.sessionId,
+        limit,
+        query: truncate(input.query, 400),
+      },
+    });
     const toolChains = await this.toolChainStore.searchRelevant(input.context, input.query, { limit });
-    console.log(
-      `[memory:tool-chain:search:result] user=${input.context.userId} agent=${input.context.agentId} session=${input.context.sessionId} count=${toolChains.length} queries=${JSON.stringify(toolChains.map((item) => truncate(item.query, 120)))}`,
-    );
+    recordRuntimeObservation({
+      name: "memory.search.tool_chain.result",
+      message: "Finished searching reusable tool chains.",
+      data: {
+        userId: input.context.userId,
+        agentId: input.context.agentId,
+        sessionId: input.context.sessionId,
+        count: toolChains.length,
+        queries: toolChains.map((item) => truncate(item.query, 120)),
+      },
+    });
     return toolChains;
   }
 }
