@@ -32,6 +32,7 @@ export class InMemoryToolChainMemoryStore implements ToolChainMemoryStore {
       name: "memory.tool_chain.save",
       message: "Stored a reusable tool chain.",
       data: {
+        traceId: context.traceId,
         store: "in-memory",
         userId: context.userId,
         agentId: context.agentId,
@@ -56,6 +57,7 @@ export class InMemoryToolChainMemoryStore implements ToolChainMemoryStore {
       name: "memory.tool_chain.search",
       message: "Searched reusable tool chains.",
       data: {
+        traceId: context.traceId,
         store: "in-memory",
         userId: context.userId,
         agentId: context.agentId,
@@ -95,6 +97,7 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
       name: "memory.tool_chain.save",
       message: "Stored a reusable tool chain.",
       data: {
+        traceId: context.traceId,
         store: "markdown",
         userId: context.userId,
         agentId: context.agentId,
@@ -116,6 +119,7 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
       name: "memory.tool_chain.search",
       message: "Searched reusable tool chains.",
       data: {
+        traceId: context.traceId,
         store: "markdown",
         userId: context.userId,
         agentId: context.agentId,

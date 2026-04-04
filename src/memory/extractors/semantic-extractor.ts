@@ -105,9 +105,9 @@ function buildSemanticPrompt(input: MemoryWriteInput): TransportMessage[] {
   }, {
     role: "user",
     content: JSON.stringify({
+      trigger: input.trigger,
       userMessage: input.userMessage,
       assistantResponse: input.assistantResponse,
-      taskState: input.currentTaskState,
     }),
   }];
 }

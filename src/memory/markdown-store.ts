@@ -54,7 +54,7 @@ export async function readSessionStateMarkdown(filePath: string): Promise<Sessio
   }
 
   try {
-    return parseFrontmatter<SessionStateRecord>(raw);
+    return normalizeSessionStateRecord(parseFrontmatter<unknown>(raw));
   } catch {
     await quarantineCorruptFile(filePath);
     return undefined;
@@ -91,11 +91,6 @@ export async function writeToolChainMarkdown(record: ToolChainMemoryRecord): Pro
 }
 
 export function renderSessionStateMarkdown(record: SessionStateRecord): string {
-  const recentMessages = record.state.recentMessages.map((message) =>
-    `- **${message.role}**: ${singleLine(message.content)}`
-  );
-  const taskState = record.state.taskState;
-
   return [
     renderFrontmatter(record),
     "# Session Memory",
@@ -105,23 +100,13 @@ export function renderSessionStateMarkdown(record: SessionStateRecord): string {
     `- Agent: \`${record.agentId}\``,
     `- Updated: ${record.updatedAt}`,
     "",
-    "## Task State",
+    "## Session Handoff",
     "",
-    `- Goal: ${taskState.goal ?? "-"}`,
-    `- Status: ${taskState.status}`,
-    `- Updated: ${taskState.updatedAt}`,
+    ...toBulletLines(record.state.handoff),
     "",
-    "### Current Plan",
-    ...toBulletLines(taskState.currentPlan),
+    "## Remembered Notes",
     "",
-    "### Completed Steps",
-    ...toBulletLines(taskState.completedSteps),
-    "",
-    "### Open Questions",
-    ...toBulletLines(taskState.openQuestions),
-    "",
-    "## Recent Messages",
-    ...(recentMessages.length > 0 ? recentMessages : ["- None"]),
+    ...toBulletLines(record.state.notes),
     "",
   ].join("\n");
 }
@@ -195,6 +180,60 @@ function parseFrontmatter<T>(raw: string): T {
 
   const json = raw.slice(FRONTMATTER_OPEN.length, end);
   return JSON.parse(json) as T;
+}
+
+function normalizeSessionStateRecord(value: unknown): SessionStateRecord {
+  const record = value as Record<string, unknown>;
+  const stateRecord = (record.state ?? {}) as Record<string, unknown>;
+
+  const handoff = Array.isArray(stateRecord.handoff)
+    ? stateRecord.handoff.filter((entry): entry is string => typeof entry === "string")
+    : normalizeLegacyHandoff(stateRecord);
+  const notes = Array.isArray(stateRecord.notes)
+    ? stateRecord.notes.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+  return {
+    sessionId: typeof record.sessionId === "string" ? record.sessionId : "default",
+    userId: typeof record.userId === "string" ? record.userId : "anonymous",
+    agentId: typeof record.agentId === "string" ? record.agentId : "default",
+    projectId: typeof record.projectId === "string" ? record.projectId : undefined,
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : new Date().toISOString(),
+    state: {
+      handoff,
+      notes,
+    },
+  };
+}
+
+function normalizeLegacyHandoff(stateRecord: Record<string, unknown>): string[] {
+  const taskState = (stateRecord.taskState ?? {}) as Record<string, unknown>;
+  const recentMessages = Array.isArray(stateRecord.recentMessages)
+    ? stateRecord.recentMessages
+      .map((message) => {
+        const item = message as Record<string, unknown>;
+        const role = typeof item.role === "string" ? item.role : "unknown";
+        const content = typeof item.content === "string" ? singleLine(item.content) : "";
+        return content ? `${role}: ${content}` : "";
+      })
+      .filter(Boolean)
+    : [];
+
+  const lines = [
+    typeof taskState.goal === "string" && taskState.goal.trim() ? `Goal: ${taskState.goal.trim()}` : undefined,
+    Array.isArray(taskState.currentPlan) && taskState.currentPlan.length > 0
+      ? `Current plan: ${taskState.currentPlan.filter((entry): entry is string => typeof entry === "string").join("; ")}`
+      : undefined,
+    Array.isArray(taskState.completedSteps) && taskState.completedSteps.length > 0
+      ? `Completed: ${taskState.completedSteps.filter((entry): entry is string => typeof entry === "string").join("; ")}`
+      : undefined,
+    Array.isArray(taskState.openQuestions) && taskState.openQuestions.length > 0
+      ? `Open questions: ${taskState.openQuestions.filter((entry): entry is string => typeof entry === "string").join("; ")}`
+      : undefined,
+    recentMessages.length > 0 ? `Recent transcript: ${recentMessages.slice(-4).join(" | ")}` : undefined,
+  ].filter((line): line is string => Boolean(line));
+
+  return lines.length > 0 ? lines : [];
 }
 
 async function listMarkdownRecords<T>(directoryPath: string, parser: (raw: string) => T): Promise<T[]> {

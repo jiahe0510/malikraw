@@ -60,6 +60,7 @@ export class MemoryRetriever {
       name: "memory.search.start",
       message: "Searching stored memory.",
       data: {
+        traceId: input.context.traceId,
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
@@ -78,6 +79,7 @@ export class MemoryRetriever {
       name: "memory.search.result",
       message: "Finished searching stored memory.",
       data: {
+        traceId: input.context.traceId,
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
@@ -96,6 +98,7 @@ export class MemoryRetriever {
       name: "memory.search.start",
       message: "Searching stored memory.",
       data: {
+        traceId: input.context.traceId,
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
@@ -109,6 +112,7 @@ export class MemoryRetriever {
       name: "memory.search.result",
       message: "Finished searching stored memory.",
       data: {
+        traceId: input.context.traceId,
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,

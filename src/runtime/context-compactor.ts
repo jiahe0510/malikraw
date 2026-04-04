@@ -13,6 +13,7 @@ const LONG_TEXT_MESSAGE_MAX_CHARS = 700;
 export type ContextCompactionStrategy = "micro" | "session" | "summary" | "reactive";
 
 export type ContextCompactionInput = {
+  traceId?: string;
   model: AgentModel;
   modelConfig: OpenAICompatibleConfig;
   compactInstructionContent?: string;
@@ -26,6 +27,7 @@ export type ContextCompactionInput = {
 };
 
 export type ReactiveCompactionInput = {
+  traceId?: string;
   modelConfig: OpenAICompatibleConfig;
   messages: AgentMessage[];
 };
@@ -92,9 +94,11 @@ export async function compactContextIfNeeded(input: ContextCompactionInput): Pro
     allowModelSummary: true,
     force: false,
     strategyOnSuccess: undefined,
+    traceId: input.traceId,
   });
   if (result.triggered) {
     recordCompactionResult("context.compact", input.userRequest, result, {
+      traceId: input.traceId,
       systemTokens,
       historyTokens,
       inputBudget,
@@ -132,6 +136,7 @@ export function reactivelyCompactMessages(input: ReactiveCompactionInput): React
     inputBudget,
     thresholdTokens: Math.min(input.modelConfig.compact.thresholdTokens, inputBudget),
     force: true,
+    traceId: input.traceId,
   });
 
   if (!compacted.triggered) {
@@ -156,6 +161,7 @@ export function reactivelyCompactMessages(input: ReactiveCompactionInput): React
       strategy: "reactive",
     },
     {
+      traceId: input.traceId,
       systemTokens,
       historyTokens,
       inputBudget,
@@ -178,6 +184,7 @@ async function compactHistoryLayers(input: {
   allowModelSummary: boolean;
   force: boolean;
   strategyOnSuccess?: ContextCompactionStrategy;
+  traceId?: string;
 }): Promise<ContextCompactionResult> {
   const micro = microCompactHistory(input.history);
   if (micro.changed) {
@@ -185,6 +192,7 @@ async function compactHistoryLayers(input: {
       name: "context.compact.micro",
       message: "Applied micro compaction to older messages.",
       data: {
+        traceId: input.traceId,
         messagesCompacted: micro.messagesCompacted,
         historyMessages: input.history.length,
         userRequest: truncate(input.userRequest, 180),
@@ -218,6 +226,7 @@ async function compactHistoryLayers(input: {
       name: "context.compact.session",
       message: "Built structured session compact handoff.",
       data: {
+        traceId: input.traceId,
         messagesCompacted: sessionCompact.messagesCompacted,
         olderMessages: sessionCompact.olderMessages.length,
         recentMessages: sessionCompact.recentMessages.length,
@@ -247,6 +256,7 @@ async function compactHistoryLayers(input: {
     name: "context.compact.summary",
     message: "Fell back to summary-based compaction.",
     data: {
+      traceId: input.traceId,
       messagesCompacted: sessionCompact.messagesCompacted || micro.messagesCompacted,
       olderMessages: sessionCompact.olderMessages.length,
       recentMessages: sessionCompact.recentMessages.length,
@@ -283,6 +293,7 @@ function compactHistoryLayersSync(input: {
   inputBudget: number;
   thresholdTokens: number;
   force: boolean;
+  traceId?: string;
 }): ContextCompactionResult {
   const micro = microCompactHistory(input.history);
   if (micro.changed) {
@@ -290,6 +301,7 @@ function compactHistoryLayersSync(input: {
       name: "context.compact.micro",
       message: "Applied micro compaction to older messages.",
       data: {
+        traceId: input.traceId,
         messagesCompacted: micro.messagesCompacted,
         historyMessages: input.history.length,
         userRequest: truncate(input.userRequest, 180),
@@ -323,6 +335,7 @@ function compactHistoryLayersSync(input: {
       name: "context.compact.session",
       message: "Built structured session compact handoff.",
       data: {
+        traceId: input.traceId,
         messagesCompacted: sessionCompact.messagesCompacted,
         olderMessages: sessionCompact.olderMessages.length,
         recentMessages: sessionCompact.recentMessages.length,
@@ -350,6 +363,7 @@ function compactHistoryLayersSync(input: {
     name: "context.compact.summary",
     message: "Fell back to summary-based compaction.",
     data: {
+      traceId: input.traceId,
       messagesCompacted: sessionCompact.messagesCompacted || micro.messagesCompacted,
       olderMessages: sessionCompact.olderMessages.length,
       recentMessages: sessionCompact.recentMessages.length,
@@ -384,6 +398,7 @@ async function summarizeHistory(
     modelConfig: OpenAICompatibleConfig;
     compactInstructionContent?: string;
     userRequest: string;
+    traceId?: string;
   },
   messages: AgentMessage[],
   structuredSummary?: string,
@@ -413,6 +428,7 @@ async function summarizeHistory(
         ].filter(Boolean).join("\n")),
       ],
       tools: [],
+      traceId: input.traceId,
     });
 
     if (response.type === "final" && response.outputText.trim()) {
@@ -844,6 +860,7 @@ function recordCompactionResult(
   userRequest: string,
   result: Pick<ContextCompactionResult, "strategy" | "messagesCompacted" | "estimatedTokens">,
   stats: {
+    traceId?: string;
     systemTokens: number;
     historyTokens: number;
     inputBudget: number;
@@ -854,6 +871,7 @@ function recordCompactionResult(
     name,
     message: "Compaction completed for the current turn.",
     data: {
+      traceId: stats.traceId,
       strategy: result.strategy ?? "unknown",
       messagesCompacted: result.messagesCompacted,
       systemTokens: stats.systemTokens,

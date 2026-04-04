@@ -17,7 +17,7 @@ import {
 } from "../core/config/config-store.js";
 import type { ProviderProfile } from "../core/providers/compatibility-profile.js";
 import { getWorkspaceRoot } from "../runtime/workspace-context.js";
-import { getServiceStatus, restartBackgroundService, startBackgroundService } from "./service-manager.js";
+import { restartBackgroundService } from "./service-manager.js";
 import { promptMultiSelect, promptSelectWithDefault, promptText } from "./terminal-ui.js";
 
 type ChannelSelection = "http" | "feishu";
@@ -93,9 +93,8 @@ export async function runOnboardWizard(): Promise<void> {
 
   if (startNow === "yes") {
     loadRuntimeConfig();
-    const wasRunning = getServiceStatus().running;
-    const status = wasRunning ? restartBackgroundService() : startBackgroundService();
-    console.log(wasRunning ? "Service restarted." : "Service started.");
+    const status = restartBackgroundService();
+    console.log("Service restarted.");
     console.log(`pid: ${status.running ? status.pid : "unknown"}`);
   }
 }

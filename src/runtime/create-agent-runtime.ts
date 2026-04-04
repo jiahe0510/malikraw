@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   OpenAICompatibleModel,
   SkillRegistry,
@@ -91,6 +93,7 @@ type RuntimeTurnExecution = {
     agentId: string;
     channelId?: string;
     projectId?: string;
+    traceId: string;
   };
 };
 
@@ -141,8 +144,13 @@ async function* executeRuntimeTurnEvents(
   dependencies: RuntimeDependencies,
   input: RuntimeAskInput,
 ): AsyncGenerator<AgentLoopEvent, RuntimeTurnExecution, void> {
+  const traceId = createRuntimeTraceId();
   const promptContent = await loadRuntimePromptContent();
-  const memoryContext = resolveMemoryContext(input);
+  const memoryContext = resolveMemoryContext(input, traceId);
+  const initialMemory = await dependencies.memoryService.retrieve({
+    context: memoryContext,
+    query: input.userRequest,
+  });
   const toolRegistry = createRuntimeToolRegistry({
     channels: config.channels,
     channelId: input.channelId,
@@ -160,8 +168,10 @@ async function* executeRuntimeTurnEvents(
     memorySystemContent: promptContent.memorySystemContent,
     history: input.history,
     userRequest: input.userRequest,
+    traceId,
   });
   const stream = runAgentLoopEvents({
+    traceId,
     model: dependencies.model,
     toolRegistry,
     skillRegistry: dependencies.skillRegistry,
@@ -175,6 +185,7 @@ async function* executeRuntimeTurnEvents(
     history: compaction.history,
     stateSummary: config.stateSummary,
     memorySummary: config.memorySummary,
+    relevantMemoryBlock: initialMemory.compiledBlock || undefined,
     userContext: {
       "Current Date": new Date().toISOString().slice(0, 10),
     },
@@ -189,6 +200,7 @@ async function* executeRuntimeTurnEvents(
       const compacted = reactivelyCompactMessages({
         modelConfig: config.model,
         messages,
+        traceId,
       });
       return compacted.triggered ? compacted.messages : undefined;
     },
@@ -224,7 +236,7 @@ async function loadRuntimePromptContent(): Promise<RuntimePromptContent> {
   };
 }
 
-function resolveMemoryContext(input: RuntimeAskInput): RuntimeTurnExecution["memoryContext"] {
+function resolveMemoryContext(input: RuntimeAskInput, traceId: string): RuntimeTurnExecution["memoryContext"] {
   const resolvedAgentId = input.agentId ?? "default";
   const resolvedUserId = input.userId ?? input.sessionId ?? "anonymous";
   const resolvedSessionId = input.sessionId ?? "default";
@@ -236,7 +248,12 @@ function resolveMemoryContext(input: RuntimeAskInput): RuntimeTurnExecution["mem
     agentId: resolvedAgentId,
     channelId: input.channelId,
     projectId: resolvedProjectId,
+    traceId,
   };
+}
+
+function createRuntimeTraceId(): string {
+  return `qry_${randomUUID().replace(/-/g, "")}`;
 }
 
 async function persistRuntimeTurn(
@@ -244,22 +261,58 @@ async function persistRuntimeTurn(
   userRequest: string,
   execution: RuntimeTurnExecution,
 ): Promise<void> {
-  await memoryService.write({
-    context: execution.memoryContext,
-    userMessage: userRequest,
-    assistantResponse: execution.result.finalOutput,
-    toolResults: execution.result.toolResults,
-    sessionMessages: execution.result.messages.filter((message) =>
-      message.role === "user" || message.role === "assistant"
-    ),
-    compaction: execution.compaction.summary
-      ? {
+  const writeInput = buildMemoryWriteInput(userRequest, execution);
+  if (!writeInput) {
+    return;
+  }
+
+  await memoryService.write(writeInput);
+}
+
+function buildMemoryWriteInput(
+  userRequest: string,
+  execution: RuntimeTurnExecution,
+): Parameters<ReturnType<typeof createMemoryService>["write"]>[0] | undefined {
+  if (execution.compaction.summary) {
+    return {
+      context: execution.memoryContext,
+      trigger: "compaction",
+      userMessage: userRequest,
+      assistantResponse: execution.result.finalOutput,
+      toolResults: execution.result.toolResults,
+      compaction: {
         summary: execution.compaction.summary,
         messagesCompacted: execution.compaction.messagesCompacted,
         estimatedTokens: execution.compaction.estimatedTokens.history,
-      }
-      : undefined,
-  });
+      },
+    };
+  }
+
+  if (isExplicitMemoryRequest(userRequest)) {
+    return {
+      context: execution.memoryContext,
+      trigger: "explicit_memory",
+      userMessage: userRequest,
+      assistantResponse: execution.result.finalOutput,
+      toolResults: execution.result.toolResults,
+    };
+  }
+
+  return undefined;
+}
+
+function isExplicitMemoryRequest(userRequest: string): boolean {
+  const normalized = userRequest.toLowerCase();
+  return [
+    /记住/,
+    /别忘/,
+    /你忘了/,
+    /请牢记/,
+    /\bremember\b/,
+    /\bdon't forget\b/,
+    /\byou forgot\b/,
+    /\bplease remember\b/,
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function buildRuntimeAskResponse(result: Awaited<ReturnType<typeof runAgentLoop>>): Awaited<ReturnType<AgentRuntime["ask"]>> {
@@ -282,6 +335,7 @@ function createRuntimeToolRegistry(input: {
     agentId: string;
     channelId?: string;
     projectId?: string;
+    traceId: string;
   };
 }): ToolRegistry {
   const registry = registerBuiltinTools(new ToolRegistry());

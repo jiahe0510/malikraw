@@ -79,6 +79,7 @@ export type AgentModelRequest = {
   messages: AgentMessage[];
   tools: ModelToolDefinition[];
   debug?: boolean;
+  traceId?: string;
 };
 
 export interface AgentModel {
@@ -109,12 +110,13 @@ export type ReactiveCompactionPolicy = (
 ) => Promise<AgentMessage[] | undefined> | AgentMessage[] | undefined;
 
 export type AgentLoopInput = {
+  traceId?: string;
   model: AgentModel;
   toolRegistry: {
     toModelTools(toolNames?: readonly string[]): ModelToolDefinition[];
     describeTools(toolNames?: readonly string[]): string;
     has(toolName: string): boolean;
-    execute(toolName: string, rawInput: unknown): Promise<ToolResultEnvelope>;
+    execute(toolName: string, rawInput: unknown, options?: { traceId?: string }): Promise<ToolResultEnvelope>;
   };
   skillRouter: {
     route(input: {

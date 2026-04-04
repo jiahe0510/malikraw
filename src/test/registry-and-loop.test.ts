@@ -275,8 +275,10 @@ read before edit`));
 
   class FakeModel implements AgentModel {
     private turn = 0;
+    lastTraceId: string | undefined;
 
-    generate(input: { messages: AgentMessage[] }): ModelTurnResponse {
+    generate(input: { messages: AgentMessage[]; traceId?: string }): ModelTurnResponse {
+      this.lastTraceId = input.traceId;
       this.turn += 1;
       if (this.turn === 1) {
         return {
@@ -298,9 +300,12 @@ read before edit`));
       };
     }
   }
+  const model = new FakeModel();
+  const traceId = "qry_run_agent_loop";
 
   const result = await runAgentLoop({
-    model: new FakeModel(),
+    traceId,
+    model,
     toolRegistry,
     skillRegistry,
     skillRouter: new ManualSkillRouter(["workspace_operator"]),
@@ -310,8 +315,10 @@ read before edit`));
 
   assert.equal(result.activeSkillIds[0], "workspace_operator");
   assert.equal(result.toolResults.length, 1);
+  assert.equal(result.toolResults[0]?.traceId, traceId);
   assert.deepEqual(result.visibleToolNames, ["read_file"]);
   assert.match(result.finalOutput, /read_file/);
+  assert.equal(model.lastTraceId, traceId);
   assert.deepEqual(
     result.events.map((event) => event.type),
     ["prompt_ready", "tool_result", "final_output"],

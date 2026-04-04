@@ -36,11 +36,8 @@ export function createMemorySearchTool(
         })),
         sessionState: result.sessionState
           ? {
-            goal: result.sessionState.state.taskState.goal,
-            currentPlan: result.sessionState.state.taskState.currentPlan,
-            completedSteps: result.sessionState.state.taskState.completedSteps,
-            openQuestions: result.sessionState.state.taskState.openQuestions,
-            status: result.sessionState.state.taskState.status,
+            handoff: result.sessionState.state.handoff,
+            notes: result.sessionState.state.notes,
           }
           : undefined,
         compiledBlock: result.compiledBlock,

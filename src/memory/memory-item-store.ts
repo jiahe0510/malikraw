@@ -35,6 +35,7 @@ export class InMemoryMemoryItemStore implements MemoryItemStore {
       name: "memory.item.save",
       message: "Stored a query-indexed memory item.",
       data: {
+        traceId: context.traceId,
         store: "in-memory",
         userId: context.userId,
         agentId: context.agentId,
@@ -54,6 +55,7 @@ export class InMemoryMemoryItemStore implements MemoryItemStore {
       name: "memory.item.search",
       message: "Searched query-indexed memory items.",
       data: {
+        traceId: context.traceId,
         store: "in-memory",
         userId: context.userId,
         agentId: context.agentId,
@@ -92,6 +94,7 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
       name: "memory.item.save",
       message: "Stored a query-indexed memory item.",
       data: {
+        traceId: context.traceId,
         store: "markdown",
         userId: context.userId,
         agentId: context.agentId,
@@ -112,6 +115,7 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
       name: "memory.item.search",
       message: "Searched query-indexed memory items.",
       data: {
+        traceId: context.traceId,
         store: "markdown",
         userId: context.userId,
         agentId: context.agentId,

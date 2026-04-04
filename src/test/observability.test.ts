@@ -221,6 +221,155 @@ test("observability writes context build events", async () => {
   }
 });
 
+test("observability reuses one trace id across query steps", async () => {
+  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-observability-"));
+  const previousHome = process.env.MALIKRAW_HOME;
+  process.env.MALIKRAW_HOME = malikrawHome;
+
+  try {
+    const traceId = "qry_shared_trace";
+    const context = {
+      sessionId: "s1",
+      userId: "u1",
+      agentId: "a1",
+      projectId: "p1",
+      traceId,
+    };
+    const sessionStore = new InMemorySessionStateStore();
+    const itemStore = new InMemoryMemoryItemStore();
+    const toolChainStore = new InMemoryToolChainMemoryStore();
+    await itemStore.insert(context, {
+      query: "deploy this service",
+      summary: "Deployment advice",
+      content: "Deploy behind the existing gateway first.",
+      scope: "project",
+      importance: 0.9,
+      confidence: 0.8,
+      source: "task_summary",
+    });
+
+    const memoryService = new DefaultMemoryService(
+      new MemoryRetriever(sessionStore, itemStore, toolChainStore, {
+        baseURL: "https://example.invalid/v1",
+        apiKey: "dummy",
+        model: "test-model",
+        contextWindow: 8192,
+        maxTokens: 1024,
+        compact: {
+          thresholdTokens: 4096,
+          targetTokens: 2048,
+        },
+      }),
+      {
+        write: async () => ({
+          sessionState: undefined,
+          memoryItemsWritten: 0,
+          toolChainsWritten: 0,
+          observations: {
+            memoryItemsWritten: 0,
+            toolChainsWritten: 0,
+            memoryItemsRetrieved: 0,
+            toolChainsRetrieved: 0,
+            compiledChars: 0,
+            estimatedTokens: 0,
+          },
+        }),
+      } as never,
+    );
+
+    const stream = runAgentLoopEvents({
+      traceId,
+      model: {
+        generate: async (input) => {
+          const hasToolResult = input.messages.some((message) => message.role === "tool");
+          if (!hasToolResult) {
+            return {
+              type: "tool_calls",
+              toolCalls: [{
+                id: "call_1",
+                name: "search_memory",
+                input: { query: "deploy this service" },
+              }],
+            };
+          }
+
+          return {
+            type: "final",
+            outputText: "done",
+          };
+        },
+      },
+      toolRegistry: {
+        toModelTools: () => [{
+          type: "function",
+          function: {
+            name: "search_memory",
+            description: "search memory",
+            parameters: {
+              type: "object",
+              properties: {
+                query: { type: "string" },
+              },
+              required: ["query"],
+            },
+          },
+        }],
+        describeTools: () => "- search_memory: search stored memory",
+        has: (toolName: string) => toolName === "search_memory",
+        execute: async (_toolName: string, rawInput: unknown, options?: { traceId?: string }) => {
+          const query = typeof (rawInput as { query?: unknown })?.query === "string"
+            ? String((rawInput as { query: string }).query)
+            : "";
+          await memoryService.retrieve({
+            context: { ...context, traceId: options?.traceId ?? traceId },
+            query,
+          });
+          return {
+            toolName: "search_memory",
+            traceId: options?.traceId ?? traceId,
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+            durationMs: 1,
+            ok: true,
+            data: { query },
+          };
+        },
+      },
+      skillRouter: {
+        route: () => ({ activeSkillIds: [] }),
+      },
+      skillRegistry: {
+        list: () => [],
+        select: () => ({ ok: true, skills: [] }),
+      },
+      globalPolicy: "Follow the system policy.",
+      userRequest: "deploy this service",
+    });
+
+    while (true) {
+      const next = await stream.next();
+      if (next.done) {
+        break;
+      }
+    }
+
+    const events = (await readFile(getRuntimeEventFilePath(), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const names = events
+      .filter((event) => event.data?.traceId === traceId)
+      .map((event) => event.name);
+
+    assert.ok(names.includes("context.build"));
+    assert.ok(names.includes("memory.search.start"));
+    assert.ok(names.includes("memory.search.result"));
+    assert.ok(names.includes("memory.retrieve"));
+  } finally {
+    restoreHome(previousHome);
+  }
+});
+
 function restoreHome(previousHome: string | undefined): void {
   if (previousHome === undefined) {
     delete process.env.MALIKRAW_HOME;

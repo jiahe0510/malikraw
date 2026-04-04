@@ -1,6 +1,4 @@
-import { getMessageText } from "../core/agent/message-content.js";
-import type { AgentMessage } from "../core/agent/types.js";
-import type { RetrievedMemory, SessionTaskState } from "./types.js";
+import type { RetrievedMemory } from "./types.js";
 
 const MIN_MEMORY_PROMPT_CHARS = 600;
 const MAX_MEMORY_PROMPT_CHARS = 6000;
@@ -37,20 +35,23 @@ export function compileRelevantMemoryBlock(
     lines.push(...toolChainHints);
   }
 
-  const taskStateBlock = formatTaskState(input.sessionState?.state.taskState);
-  if (taskStateBlock.length > 0) {
+  const sessionHandoff = input.sessionState?.state.handoff ?? [];
+  if (sessionHandoff.length > 0) {
     lines.push("");
-    lines.push("Current task state:");
-    lines.push(...taskStateBlock);
+    lines.push("Session handoff:");
+    lines.push(...sessionHandoff.map((entry) => `- ${truncate(entry, 220)}`));
   }
 
-  const recentMessages = input.sessionState?.state.recentMessages
-    ?? [];
-  const dynamicRecentMessages = fitRecentMessagesWithinBudget(recentMessages, lines, maxChars);
-  if (dynamicRecentMessages.length > 0) {
+  const sessionNotes = input.sessionState?.state.notes ?? [];
+  const dynamicSessionNotes = fitLinesWithinBudget(
+    sessionNotes.map((entry) => `- ${truncate(entry, 220)}`),
+    lines,
+    maxChars,
+  );
+  if (dynamicSessionNotes.length > 0) {
     lines.push("");
-    lines.push("Recent session messages:");
-    lines.push(...dynamicRecentMessages);
+    lines.push("Remembered session notes:");
+    lines.push(...dynamicSessionNotes);
   }
 
   if (lines.length === 1) {
@@ -71,20 +72,20 @@ function deriveMemoryPromptBudget(input: {
   return Math.max(MIN_MEMORY_PROMPT_CHARS, Math.min(MAX_MEMORY_PROMPT_CHARS, baseChars - queryPenalty));
 }
 
-function fitRecentMessagesWithinBudget(
-  recentMessages: AgentMessage[],
+function fitLinesWithinBudget(
+  candidates: string[],
   currentLines: string[],
   maxChars: number,
 ): string[] {
-  if (recentMessages.length === 0) {
+  if (candidates.length === 0) {
     return [];
   }
 
   const selected: string[] = [];
-  const baseLength = currentLines.join("\n").length + "\n\nRecent session messages:\n".length;
+  const baseLength = currentLines.join("\n").length + "\n\nSession additions:\n".length;
 
-  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
-    const line = `- ${recentMessages[index]?.role}: ${truncate(getMessageText(recentMessages[index]!), 120)}`;
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const line = candidates[index] ?? "";
     const candidate = [line, ...selected];
     const candidateLength = baseLength + candidate.join("\n").length;
     if (candidateLength > maxChars) {
@@ -94,22 +95,6 @@ function fitRecentMessagesWithinBudget(
   }
 
   return selected;
-}
-
-function formatTaskState(taskState: SessionTaskState | undefined): string[] {
-  if (!taskState) {
-    return [];
-  }
-
-  const lines = [
-    taskState.goal ? `- Goal: ${taskState.goal}` : undefined,
-    taskState.currentPlan.length > 0 ? `- Current plan: ${taskState.currentPlan.join("; ")}` : undefined,
-    taskState.completedSteps.length > 0 ? `- Completed: ${taskState.completedSteps.join("; ")}` : undefined,
-    taskState.openQuestions.length > 0 ? `- Open questions: ${taskState.openQuestions.join("; ")}` : undefined,
-    `- Status: ${taskState.status}`,
-  ];
-
-  return lines.filter((line): line is string => Boolean(line));
 }
 
 function truncate(value: string, maxChars: number): string {

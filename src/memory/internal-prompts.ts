@@ -26,10 +26,10 @@ export function buildMemorySaveSystemPrompt(): string {
 
 export function buildMemorySaveUserPayload(input: MemoryWriteInput): string {
   return JSON.stringify({
+    trigger: input.trigger,
     userMessage: input.userMessage,
     assistantResponse: input.assistantResponse,
     toolResults: input.toolResults,
-    currentTaskState: input.currentTaskState,
     compaction: input.compaction,
   });
 }

@@ -209,17 +209,22 @@ test("OpenAICompatibleModel writes llm request events", async () => {
       },
     });
 
+    const traceId = "qry_test_llm";
     await model.generate({
       messages: [{ role: "user", content: "hi" } satisfies AgentMessage],
       tools: [],
+      traceId,
     });
 
-    const eventNames = (await readFile(getRuntimeEventFilePath(), "utf8"))
+    const events = (await readFile(getRuntimeEventFilePath(), "utf8"))
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line).name);
+      .map((line) => JSON.parse(line));
+    const eventNames = events.map((event) => event.name);
     assert.ok(eventNames.includes("llm.start"));
     assert.ok(eventNames.includes("llm.success"));
+    assert.equal(events.find((event) => event.name === "llm.start")?.data?.traceId, traceId);
+    assert.equal(events.find((event) => event.name === "llm.success")?.data?.traceId, traceId);
   } finally {
     globalThis.fetch = originalFetch;
     if (previousHome === undefined) {

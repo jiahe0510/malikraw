@@ -14,13 +14,14 @@ export type ToolCallExecution = {
 };
 
 export async function executeToolCalls(input: {
+  traceId?: string;
   toolCalls: readonly ModelToolCall[];
   visibleToolNames: readonly string[];
   messages: AgentMessage[];
   activeSkills: SelectedSkill[];
   toolRegistry: {
     has(toolName: string): boolean;
-    execute(toolName: string, rawInput: unknown): Promise<ToolResultEnvelope>;
+    execute(toolName: string, rawInput: unknown, options?: { traceId?: string }): Promise<ToolResultEnvelope>;
   };
   authorizeTool?: ToolAuthorizationPolicy;
 }): Promise<ToolCallExecution[]> {
@@ -33,6 +34,7 @@ export async function executeToolCalls(input: {
         toolCall.id,
         `Tool "${toolCall.name}" is not visible for the active skills.`,
         "visibility",
+        input.traceId,
       );
       executions.push({
         result,
@@ -48,7 +50,7 @@ export async function executeToolCalls(input: {
       activeSkills: input.activeSkills,
     });
     if (!authorization.ok) {
-      const result = authorizationFailure(toolCall.name, toolCall.id, authorization.reason, "auth");
+      const result = authorizationFailure(toolCall.name, toolCall.id, authorization.reason, "auth", input.traceId);
       executions.push({
         result,
         message: buildToolMessage(toolCall.id, toolCall.name, result),
@@ -56,7 +58,9 @@ export async function executeToolCalls(input: {
       continue;
     }
 
-    const result = await input.toolRegistry.execute(toolCall.name, toolCall.input);
+    const result = await input.toolRegistry.execute(toolCall.name, toolCall.input, {
+      traceId: input.traceId,
+    });
     executions.push({
       result,
       message: buildToolMessage(toolCall.id, toolCall.name, result),
@@ -82,11 +86,12 @@ function authorizationFailure(
   toolCallId: string,
   reason: string,
   prefix: string,
+  traceId?: string,
 ): ToolResultEnvelope<never> {
   const startedAt = new Date().toISOString();
   return {
     toolName,
-    traceId: `${prefix}_${Date.now()}_${toolCallId}`,
+    traceId: traceId ?? `${prefix}_${Date.now()}_${toolCallId}`,
     startedAt,
     finishedAt: startedAt,
     durationMs: 0,

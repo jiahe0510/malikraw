@@ -65,6 +65,7 @@ export async function* runAgentLoopEvents(
     name: "context.build",
     message: "Built query context and prompt messages.",
     data: {
+      traceId: input.traceId,
       activeSkillIds: queryContext.activeSkillIds,
       instructionMessages: queryContext.instructionMessages.length,
       historyMessages: queryContext.history.length,
@@ -97,6 +98,7 @@ export async function* runAgentLoopEvents(
         messages,
         tools: input.toolRegistry.toModelTools(visibleToolNames),
         debug: input.debugModelMessages,
+        traceId: input.traceId,
       });
     } catch (error) {
       const compactedMessages = await tryReactiveCompact(
@@ -150,6 +152,7 @@ export async function* runAgentLoopEvents(
     }
 
     const executions = await executeToolCalls({
+      traceId: input.traceId,
       toolCalls: modelResponse.toolCalls,
       visibleToolNames,
       messages,

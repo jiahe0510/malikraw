@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { compileRelevantMemoryBlock } from "../memory/memory-compiler.js";
-import { HeuristicEpisodeExtractor } from "../memory/extractors/episode-extractor.js";
 import { extractSemanticHeuristically } from "../memory/extractors/semantic-extractor.js";
 import { FileBackedMemoryItemStore, InMemoryMemoryItemStore } from "../memory/memory-item-store.js";
-import { getGlobalMemoryItemsDirectory, getSessionStateFilePath } from "../memory/markdown-store.js";
+import {
+  getGlobalMemoryItemsDirectory,
+  getSessionStateFilePath,
+} from "../memory/markdown-store.js";
 import { MemoryRetriever } from "../memory/memory-retriever.js";
 import { MemoryWriter } from "../memory/memory-writer.js";
 import { FileBackedSessionStateStore, InMemorySessionStateStore } from "../memory/session-store.js";
@@ -22,10 +24,10 @@ test("heuristic semantic extractor keeps stable preferences and constraints only
       userId: "u1",
       agentId: "a1",
     },
+    trigger: "explicit_memory",
     userMessage: "我偏好 implementation-focused answers\n项目 tech stack: TypeScript\n必须保留 breaking change",
     assistantResponse: "ok",
     toolResults: [],
-    sessionMessages: [],
   });
 
   assert.deepEqual(facts.map((item) => item.key), [
@@ -35,53 +37,54 @@ test("heuristic semantic extractor keeps stable preferences and constraints only
   ]);
 });
 
-test("memory writer persists session state and query-indexed memory items", async () => {
+test("memory writer only writes durable compaction handoff instead of per-turn transcript", async () => {
+  const context = {
+    sessionId: "s1",
+    userId: "u1",
+    agentId: "a1",
+  };
   const sessionStore = new InMemorySessionStateStore();
   const memoryItemStore = new InMemoryMemoryItemStore();
   const toolChainStore = new InMemoryToolChainMemoryStore();
-  const writer = new MemoryWriter(
-    sessionStore,
-    memoryItemStore,
-    toolChainStore,
-    new HeuristicEpisodeExtractor(),
-  );
+  const writer = new MemoryWriter(sessionStore, memoryItemStore, toolChainStore);
 
-  const input = {
-    context: {
-      sessionId: "s1",
-      userId: "u1",
-      agentId: "a1",
-    },
-    userMessage: "Use TypeScript",
-    assistantResponse: "Completed the refactor.",
+  const result = await writer.write({
+    context,
+    trigger: "compaction",
+    userMessage: "continue the refactor",
+    assistantResponse: "done",
     toolResults: [{
       toolName: "edit_file",
       traceId: "t1",
       startedAt: new Date().toISOString(),
       finishedAt: new Date().toISOString(),
-      durationMs: 1,
-      ok: true as const,
+      durationMs: 2,
+      ok: true,
       data: { path: "src/app.ts" },
     }],
-    sessionMessages: [
-      { role: "user" as const, content: "Use TypeScript" },
-      { role: "assistant" as const, content: "Completed the refactor." },
-    ],
-  };
+    compaction: {
+      summary: "Goal: finish the refactor. Decision: keep the transport builder separate from prompt collection.",
+      messagesCompacted: 12,
+      estimatedTokens: 2000,
+    },
+  });
 
-  const result = await writer.write(input);
   assert.equal(result.memoryItemsWritten, 1);
+  assert.equal(result.toolChainsWritten, 1);
 
-  const state = await sessionStore.read(input.context);
-  assert.equal(state?.state.recentMessages.length, 2);
+  const state = await sessionStore.read(context);
+  assert.deepEqual(state?.state.handoff, [
+    "Goal: finish the refactor. Decision: keep the transport builder separate from prompt collection.",
+  ]);
+  assert.deepEqual(state?.state.notes, []);
 
-  await writer.write(input);
-  const items = await memoryItemStore.searchRelevant(input.context, "Use TypeScript", { limit: 10 });
-  assert.equal(items.length, 2);
-  assert.match(items[0]?.content ?? "", /Use TypeScript/);
+  const items = await memoryItemStore.searchRelevant(context, "transport builder", { limit: 10 });
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.source, "history_compaction");
+  assert.match(items[0]?.content ?? "", /Session handoff/);
 });
 
-test("memory writer stores compaction summaries as query-indexed memory items", async () => {
+test("memory writer stores explicit remember requests as session notes and global memory", async () => {
   const context = {
     sessionId: "s2",
     userId: "u2",
@@ -90,44 +93,39 @@ test("memory writer stores compaction summaries as query-indexed memory items", 
   const sessionStore = new InMemorySessionStateStore();
   const memoryItemStore = new InMemoryMemoryItemStore();
   const toolChainStore = new InMemoryToolChainMemoryStore();
-  const writer = new MemoryWriter(
-    sessionStore,
-    memoryItemStore,
-    toolChainStore,
-    new HeuristicEpisodeExtractor(),
-  );
+  const writer = new MemoryWriter(sessionStore, memoryItemStore, toolChainStore);
 
-  await writer.write({
+  const result = await writer.write({
     context,
-    userMessage: "continue",
-    assistantResponse: "done",
+    trigger: "explicit_memory",
+    userMessage: "记住，我现在主要在 macOS 上开发，而且回答尽量简洁。",
+    assistantResponse: "我记住了。",
     toolResults: [],
-    sessionMessages: [
-      { role: "user", content: "continue" },
-      { role: "assistant", content: "done" },
-    ],
-    compaction: {
-      summary: "Goal: add provider compact config. Decisions: compress only history.",
-      messagesCompacted: 12,
-      estimatedTokens: 3000,
-    },
   });
 
-  const items = memoryItemStore.list();
-  assert.ok(items.some((item) => item.source === "history_compaction"));
-  assert.ok(items.some((item) => /compress only history/i.test(item.content)));
+  assert.equal(result.memoryItemsWritten, 1);
+  assert.equal(result.toolChainsWritten, 0);
+
+  const state = await sessionStore.read(context);
+  assert.deepEqual(state?.state.handoff, []);
+  assert.deepEqual(state?.state.notes, ["记住，我现在主要在 macOS 上开发，而且回答尽量简洁。"]);
+
+  const items = await memoryItemStore.searchRelevant(context, "macOS 简洁", { limit: 10 });
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.source, "user_explicit");
 });
 
-test("memory retriever compiles query memory and tool chains into one block", async () => {
+test("memory retriever compiles session handoff, notes, global memory, and tool chains", async () => {
   const context = {
-    sessionId: "s1",
-    userId: "u1",
-    agentId: "a1",
-    projectId: "p1",
+    sessionId: "s3",
+    userId: "u3",
+    agentId: "a3",
+    projectId: "p3",
   };
   const sessionStore = new InMemorySessionStateStore();
   const memoryItemStore = new InMemoryMemoryItemStore();
   const toolChainStore = new InMemoryToolChainMemoryStore();
+
   await sessionStore.write({
     sessionId: context.sessionId,
     userId: context.userId,
@@ -135,33 +133,22 @@ test("memory retriever compiles query memory and tool chains into one block", as
     projectId: context.projectId,
     updatedAt: new Date().toISOString(),
     state: {
-      recentMessages: [
-        { role: "user", content: "Need a plan" },
-        { role: "assistant", content: "I will implement it." },
-      ],
-      taskState: {
-        goal: "Implement memory",
-        currentPlan: ["Add stores", "Integrate runtime"],
-        completedSteps: ["Add schema"],
-        openQuestions: ["How should the local memory files be organized?"],
-        status: "active",
-        updatedAt: new Date().toISOString(),
-      },
+      handoff: ["Goal: finish the memory runtime refactor."],
+      notes: ["User prefers concise answers."],
     },
   });
   await memoryItemStore.insert(context, {
     query: "How should we implement memory?",
     summary: "Memory implementation plan",
-    content: "Use local JSON stores and stage the implementation in three phases.",
+    content: "Do one retrieval at query start, then keep search_memory as an on-demand tool.",
     scope: "global",
     importance: 0.9,
     confidence: 0.8,
     source: "task_summary",
   });
-
   await toolChainStore.insert(context, {
     query: "How should we implement memory?",
-    assistantResponse: "Use local JSON stores, then initialize the memory directory.",
+    assistantResponse: "Use read_file, edit_file, then test.",
     toolChain: [
       {
         toolName: "read_file",
@@ -198,13 +185,13 @@ test("memory retriever compiles query memory and tool chains into one block", as
 
   assert.match(result.compiledBlock, /\[Relevant Memory\]/);
   assert.match(result.compiledBlock, /Relevant user memory/);
-  assert.match(result.compiledBlock, /Use local JSON stores and stage the implementation/);
+  assert.match(result.compiledBlock, /Do one retrieval at query start/);
+  assert.match(result.compiledBlock, /Session handoff/);
+  assert.match(result.compiledBlock, /Goal: finish the memory runtime refactor/);
+  assert.match(result.compiledBlock, /Remembered session notes/);
+  assert.match(result.compiledBlock, /User prefers concise answers/);
   assert.match(result.compiledBlock, /Reusable tool chains/);
   assert.match(result.compiledBlock, /read_file -> edit_file/);
-  assert.match(result.compiledBlock, /Goal: Implement memory/);
-  assert.ok(result.observations.compiledChars > 0);
-  assert.equal(result.observations.memoryItemsRetrieved, 1);
-  assert.equal(result.observations.toolChainsRetrieved, 1);
 });
 
 test("search_memory tool performs retrieval only when invoked", async () => {
@@ -213,7 +200,16 @@ test("search_memory tool performs retrieval only when invoked", async () => {
     retrieve: async ({ query }) => {
       retrieveCalls += 1;
       return {
-        sessionState: undefined,
+        sessionState: {
+          sessionId: "s1",
+          userId: "u1",
+          agentId: "a1",
+          updatedAt: new Date().toISOString(),
+          state: {
+            handoff: ["Carry the current refactor forward."],
+            notes: ["Prefer concise answers."],
+          },
+        },
         memoryItems: [{
           id: "m1",
           userId: "u1",
@@ -257,12 +253,24 @@ test("search_memory tool performs retrieval only when invoked", async () => {
 
   assert.equal(retrieveCalls, 1);
   assert.equal(result.compiledBlock, "[Relevant Memory]\nRelevant user memory:\n- Previous answer and notes.");
-  assert.equal(result.memoryItems.length, 1);
+  assert.deepEqual(result.sessionState, {
+    handoff: ["Carry the current refactor forward."],
+    notes: ["Prefer concise answers."],
+  });
 });
 
 test("compileRelevantMemoryBlock enforces a prompt budget", () => {
   const block = compileRelevantMemoryBlock({
-    sessionState: undefined,
+    sessionState: {
+      sessionId: "s1",
+      userId: "u1",
+      agentId: "a1",
+      updatedAt: new Date().toISOString(),
+      state: {
+        handoff: ["x".repeat(400)],
+        notes: ["y".repeat(400)],
+      },
+    },
     memoryItems: [{
       id: "1",
       userId: "u1",
@@ -295,60 +303,43 @@ test("compileRelevantMemoryBlock enforces a prompt budget", () => {
   assert.ok(block.length <= 600);
 });
 
-test("memory writer stores one tool chain per user query", async () => {
-  const context = {
-    sessionId: "s3",
-    userId: "u3",
-    agentId: "a3",
-  };
-  const sessionStore = new InMemorySessionStateStore();
-  const memoryItemStore = new InMemoryMemoryItemStore();
-  const toolChainStore = new InMemoryToolChainMemoryStore();
-  const writer = new MemoryWriter(
-    sessionStore,
-    memoryItemStore,
-    toolChainStore,
-    new HeuristicEpisodeExtractor(),
-  );
+test("file-backed session memory is stored as markdown under .malikraw/memory", async () => {
+  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-memory-store-"));
+  const previousHome = process.env.MALIKRAW_HOME;
+  process.env.MALIKRAW_HOME = malikrawHome;
 
-  const startedAt = new Date().toISOString();
-  const finishedAt = new Date().toISOString();
-  const result = await writer.write({
-    context,
-    userMessage: "查一下最近的国际新闻",
-    assistantResponse: "我已经检索并整理了结果。",
-    toolResults: [
-      {
-        toolName: "web_search",
-        traceId: "t1",
-        startedAt,
-        finishedAt,
-        durationMs: 12,
-        ok: true,
-        data: { query: "国际新闻" },
+  try {
+    const context = {
+      sessionId: "shared-session",
+      userId: "u1",
+      agentId: "main",
+      projectId: "p1",
+    };
+    const store = new FileBackedSessionStateStore();
+    await store.write({
+      sessionId: context.sessionId,
+      userId: context.userId,
+      agentId: context.agentId,
+      projectId: context.projectId,
+      updatedAt: new Date().toISOString(),
+      state: {
+        handoff: ["Goal: finish the task."],
+        notes: ["Remember the user prefers terse replies."],
       },
-      {
-        toolName: "open_page",
-        traceId: "t2",
-        startedAt,
-        finishedAt,
-        durationMs: 8,
-        ok: true,
-        data: { url: "https://example.com" },
-      },
-    ],
-    sessionMessages: [
-      { role: "user", content: "查一下最近的国际新闻" },
-      { role: "assistant", content: "我已经检索并整理了结果。" },
-    ],
-  });
+    });
 
-  assert.equal(result.toolChainsWritten, 1);
-  const records = toolChainStore.list();
-  assert.equal(records.length, 1);
-  assert.equal(records[0]?.query, "查一下最近的国际新闻");
-  assert.equal(records[0]?.toolChain.length, 2);
-  assert.deepEqual(records[0]?.toolChain.map((step) => step.toolName), ["web_search", "open_page"]);
+    const filePath = getSessionStateFilePath(context);
+    const markdown = await readFile(filePath, "utf8");
+
+    assert.match(filePath, /\/memory\/agents\/main\/sessions\/shared-session\/session\.md$/);
+    assert.match(markdown, /# Session Memory/);
+    assert.match(markdown, /## Session Handoff/);
+    assert.match(markdown, /Goal: finish the task/);
+    assert.match(markdown, /## Remembered Notes/);
+    assert.match(markdown, /terse replies/);
+  } finally {
+    restoreHome(previousHome);
+  }
 });
 
 test("file-backed memory item store quarantines corrupt markdown and recovers with an empty dataset", async () => {
@@ -360,98 +351,28 @@ test("file-backed memory item store quarantines corrupt markdown and recovers wi
     userId: "u1",
     agentId: "a1",
   };
-  const directory = getGlobalMemoryItemsDirectory(context.agentId);
-  const filePath = path.join(directory, "broken.md");
-  await mkdir(directory, { recursive: true });
-  await writeFile(filePath, "not valid frontmatter", "utf8");
-
-  const store = new FileBackedMemoryItemStore();
 
   try {
-    const results = await store.searchRelevant(context, "hello", { limit: 5 });
-    assert.deepEqual(results, []);
+    const directory = getGlobalMemoryItemsDirectory(context.agentId);
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "broken.md"), "# not-frontmatter", "utf8");
 
-    const entries = await readdir(directory);
-    assert.ok(entries.some((entry) => entry.startsWith("broken.md.corrupt-")));
+    const store = new FileBackedMemoryItemStore();
+    const records = await store.searchRelevant(context, "anything", { limit: 10 });
+
+    assert.deepEqual(records, []);
+    const fileNames = await readdir(directory);
+    assert.ok(fileNames.some((fileName) => fileName.includes(".corrupt-")));
   } finally {
-    if (previousHome === undefined) {
-      delete process.env.MALIKRAW_HOME;
-    } else {
-      process.env.MALIKRAW_HOME = previousHome;
-    }
+    restoreHome(previousHome);
   }
 });
 
-test("file-backed session state store persists markdown under ~/.malikraw/memory", async () => {
-  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-session-memory-"));
-  const previousHome = process.env.MALIKRAW_HOME;
-  process.env.MALIKRAW_HOME = malikrawHome;
-
-  try {
-    const store = new FileBackedSessionStateStore();
-    const record = {
-      sessionId: "s1",
-      userId: "u1",
-      agentId: "a1",
-      updatedAt: new Date().toISOString(),
-      state: {
-        recentMessages: [{ role: "user" as const, content: "hello" }],
-        taskState: {
-          goal: "hello",
-          currentPlan: [],
-          completedSteps: [],
-          openQuestions: [],
-          status: "active" as const,
-          updatedAt: new Date().toISOString(),
-        },
-      },
-    };
-
-    await store.write(record);
-
-    const sessionPath = getSessionStateFilePath(record);
-    const content = await readFile(sessionPath, "utf8");
-    assert.ok(sessionPath.startsWith(path.join(malikrawHome, "memory")));
-    assert.doesNotMatch(sessionPath, /\/users\//);
-    assert.match(content, /# Session Memory/);
-    assert.match(content, /## Recent Messages/);
-  } finally {
-    if (previousHome === undefined) {
-      delete process.env.MALIKRAW_HOME;
-    } else {
-      process.env.MALIKRAW_HOME = previousHome;
-    }
+function restoreHome(previousHome: string | undefined): void {
+  if (previousHome === undefined) {
+    delete process.env.MALIKRAW_HOME;
+    return;
   }
-});
 
-test("session state is shared across users within the same session", async () => {
-  const sessionStore = new InMemorySessionStateStore();
-  const record = {
-    sessionId: "shared-session",
-    userId: "u1",
-    agentId: "a1",
-    updatedAt: new Date().toISOString(),
-    state: {
-      recentMessages: [{ role: "user" as const, content: "hello" }],
-      taskState: {
-        goal: "shared goal",
-        currentPlan: [],
-        completedSteps: [],
-        openQuestions: [],
-        status: "active" as const,
-        updatedAt: new Date().toISOString(),
-      },
-    },
-  };
-
-  await sessionStore.write(record);
-
-  const shared = await sessionStore.read({
-    sessionId: "shared-session",
-    userId: "u2",
-    agentId: "a1",
-  });
-
-  assert.equal(shared?.sessionId, "shared-session");
-  assert.equal(shared?.state.taskState.goal, "shared goal");
-});
+  process.env.MALIKRAW_HOME = previousHome;
+}

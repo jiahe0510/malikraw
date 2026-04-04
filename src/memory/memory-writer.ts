@@ -1,46 +1,30 @@
 import type {
-  EpisodeExtractor,
   MemoryItemStore,
   MemoryWriteInput,
   MemoryWriteResult,
   SessionStateRecord,
   SessionStateStore,
-  SessionTaskState,
   ToolChainMemoryStore,
   ToolChainStep,
 } from "./types.js";
 
-const MEMORY_IMPORTANCE_THRESHOLD = 0.65;
+const MAX_SESSION_HANDOFFS = 4;
+const MAX_SESSION_NOTES = 12;
 
 export class MemoryWriter {
   constructor(
     private readonly sessionStore: SessionStateStore,
     private readonly memoryItemStore: MemoryItemStore,
     private readonly toolChainStore: ToolChainMemoryStore,
-    private readonly episodeExtractor: EpisodeExtractor,
   ) {}
 
   async write(input: MemoryWriteInput): Promise<MemoryWriteResult> {
-    const sessionState = buildSessionState(input);
+    const sessionState = await buildSessionState(this.sessionStore, input);
     await this.sessionStore.write(sessionState);
 
-    const extracted = await this.episodeExtractor.extract(input);
-    const content = buildMemoryItemContent(input, extracted?.summary);
-    const importance = input.compaction?.summary
-      ? Math.max(MEMORY_IMPORTANCE_THRESHOLD, 0.85)
-      : extracted?.importance ?? (input.toolResults.length > 0 ? 0.8 : 0.6);
-    const confidence = extracted?.confidence ?? 0.75;
-    const shouldStoreMemoryItem = importance >= MEMORY_IMPORTANCE_THRESHOLD;
-    if (shouldStoreMemoryItem) {
-      await this.memoryItemStore.insert(input.context, {
-        query: input.userMessage,
-        summary: extracted?.summary ?? truncate(content, 240),
-        content,
-        scope: "global",
-        importance,
-        confidence,
-        source: input.compaction?.summary ? "history_compaction" : "task_summary",
-      });
+    const memoryItem = buildMemoryItemCandidate(input);
+    if (memoryItem) {
+      await this.memoryItemStore.insert(input.context, memoryItem);
     }
 
     const toolChain = buildToolChainSteps(input.toolResults);
@@ -54,10 +38,10 @@ export class MemoryWriter {
 
     return {
       sessionState,
-      memoryItemsWritten: shouldStoreMemoryItem ? 1 : 0,
+      memoryItemsWritten: memoryItem ? 1 : 0,
       toolChainsWritten: toolChain.length > 0 ? 1 : 0,
       observations: {
-        memoryItemsWritten: shouldStoreMemoryItem ? 1 : 0,
+        memoryItemsWritten: memoryItem ? 1 : 0,
         toolChainsWritten: toolChain.length > 0 ? 1 : 0,
         memoryItemsRetrieved: 0,
         toolChainsRetrieved: 0,
@@ -68,19 +52,80 @@ export class MemoryWriter {
   }
 }
 
-function buildSessionState(input: MemoryWriteInput): SessionStateRecord {
+async function buildSessionState(
+  sessionStore: SessionStateStore,
+  input: MemoryWriteInput,
+): Promise<SessionStateRecord> {
   const now = new Date().toISOString();
+  const previous = await sessionStore.read(input.context);
+  const existingHandoff = previous?.state.handoff ?? [];
+  const existingNotes = previous?.state.notes ?? [];
+
+  const nextHandoff = input.trigger === "compaction" && input.compaction?.summary
+    ? appendUnique(existingHandoff, normalizeLine(input.compaction.summary), MAX_SESSION_HANDOFFS)
+    : existingHandoff;
+  const explicitNote = input.trigger === "explicit_memory"
+    ? extractExplicitMemoryNote(input.userMessage)
+    : undefined;
+  const nextNotes = explicitNote
+    ? appendUnique(existingNotes, explicitNote, MAX_SESSION_NOTES)
+    : existingNotes;
+
   return {
     sessionId: input.context.sessionId,
     userId: input.context.userId,
     agentId: input.context.agentId,
     projectId: input.context.projectId,
     state: {
-      recentMessages: input.sessionMessages,
-      taskState: input.currentTaskState ?? deriveTaskState(input, now),
+      handoff: nextHandoff,
+      notes: nextNotes,
     },
     updatedAt: now,
   };
+}
+
+function buildMemoryItemCandidate(input: MemoryWriteInput) {
+  if (input.trigger === "compaction" && input.compaction?.summary) {
+    const summary = truncate(normalizeLine(input.compaction.summary), 240);
+    return {
+      query: input.userMessage,
+      summary,
+      content: [
+        `Compacted user request: ${input.userMessage}`,
+        `Session handoff: ${input.compaction.summary}`,
+        input.assistantResponse ? `Latest assistant response: ${input.assistantResponse}` : undefined,
+        input.toolResults.length > 0
+          ? `Tool chain: ${input.toolResults.map((result) => result.toolName).join(" -> ")}`
+          : undefined,
+      ].filter(Boolean).join("\n"),
+      scope: "global" as const,
+      importance: 0.9,
+      confidence: 0.9,
+      source: "history_compaction" as const,
+    };
+  }
+
+  if (input.trigger === "explicit_memory") {
+    const note = extractExplicitMemoryNote(input.userMessage);
+    if (!note) {
+      return undefined;
+    }
+
+    return {
+      query: input.userMessage,
+      summary: truncate(note, 240),
+      content: [
+        `User explicitly asked to remember: ${note}`,
+        input.assistantResponse ? `Assistant response: ${input.assistantResponse}` : undefined,
+      ].filter(Boolean).join("\n"),
+      scope: "global" as const,
+      importance: 1,
+      confidence: 1,
+      source: "user_explicit" as const,
+    };
+  }
+
+  return undefined;
 }
 
 function buildToolChainSteps(toolResults: MemoryWriteInput["toolResults"]): ToolChainStep[] {
@@ -103,38 +148,29 @@ function buildToolChainSteps(toolResults: MemoryWriteInput["toolResults"]): Tool
     });
 }
 
-function deriveTaskState(input: MemoryWriteInput, now: string): SessionTaskState {
-  const completedSteps = input.toolResults
-    .filter((result) => result.ok)
-    .map((result) => `Executed ${result.toolName}`);
-  const openQuestions = [...input.assistantResponse.matchAll(/([^?.!]*\?)/g)]
-    .map((match) => match[1].trim())
-    .filter(Boolean)
-    .slice(0, 3);
+function extractExplicitMemoryNote(userMessage: string): string | undefined {
+  const normalized = normalizeLine(userMessage);
+  if (!normalized) {
+    return undefined;
+  }
 
-  return {
-    goal: input.userMessage,
-    currentPlan: completedSteps.length > 0 ? [] : ["Clarify task and choose next action"],
-    completedSteps,
-    openQuestions,
-    status: openQuestions.length > 0 ? "active" : "completed",
-    updatedAt: now,
-  };
+  return normalized;
 }
 
-function buildMemoryItemContent(input: MemoryWriteInput, summary: string | undefined): string {
-  const parts = [
-    `User query: ${input.userMessage}`,
-    input.compaction?.summary ? `Compacted history: ${input.compaction.summary}` : undefined,
-    summary ? `Summary: ${summary}` : undefined,
-    `Assistant response: ${input.assistantResponse}`,
-    input.toolResults.length > 0
-      ? `Tool chain: ${input.toolResults.map((result) => result.toolName).join(" -> ")}`
-      : undefined,
-  ];
-  return parts.filter(Boolean).join("\n");
+function appendUnique(existing: string[], value: string, limit: number): string[] {
+  const normalized = value.trim();
+  if (!normalized) {
+    return existing.slice(-limit);
+  }
+
+  const filtered = existing.filter((entry) => entry.trim() !== normalized);
+  return [...filtered, normalized].slice(-limit);
+}
+
+function normalizeLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function truncate(value: string, maxLength: number): string {
-  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 3)}...`;
 }

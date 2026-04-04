@@ -1,4 +1,3 @@
-import type { AgentMessage } from "../core/agent/types.js";
 import type { ToolResultEnvelope } from "../core/tool-registry/types.js";
 
 export type MemoryScope = "session" | "project" | "global";
@@ -6,18 +5,9 @@ export type MemoryItemType = "semantic" | "episode";
 export type MemorySource = "user_explicit" | "inferred" | "task_summary" | "history_compaction";
 export type ExtractedMemorySource = "explicit" | "inferred";
 
-export type SessionTaskState = {
-  goal?: string;
-  currentPlan: string[];
-  completedSteps: string[];
-  openQuestions: string[];
-  status: "active" | "completed";
-  updatedAt: string;
-};
-
 export type SessionMemoryState = {
-  recentMessages: AgentMessage[];
-  taskState: SessionTaskState;
+  handoff: string[];
+  notes: string[];
 };
 
 export type SessionStateRecord = {
@@ -114,15 +104,15 @@ export type MemoryContext = {
   agentId: string;
   projectId?: string;
   channelId?: string;
+  traceId?: string;
 };
 
 export type MemoryWriteInput = {
   context: MemoryContext;
+  trigger: "compaction" | "explicit_memory";
   userMessage: string;
   assistantResponse: string;
   toolResults: ToolResultEnvelope[];
-  sessionMessages: AgentMessage[];
-  currentTaskState?: SessionTaskState;
   compaction?: {
     summary: string;
     messagesCompacted: number;
@@ -176,7 +166,7 @@ export type MemoryObservations = {
 };
 
 export type MemoryWriteResult = {
-  sessionState: SessionStateRecord;
+  sessionState?: SessionStateRecord;
   memoryItemsWritten: number;
   toolChainsWritten: number;
   observations: MemoryObservations;

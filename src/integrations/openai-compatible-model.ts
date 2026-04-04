@@ -70,6 +70,7 @@ export class OpenAICompatibleModel implements AgentModel {
       name: "llm.start",
       message: "Started model request.",
       data: {
+        traceId: input.traceId,
         model: this.config.model,
         profile: this.config.profile ?? "openai",
         messageCount: requestBody.messages.length,
@@ -94,6 +95,7 @@ export class OpenAICompatibleModel implements AgentModel {
         level: "error",
         message: "Model request failed.",
         data: {
+          traceId: input.traceId,
           model: this.config.model,
           profile: this.config.profile ?? "openai",
           status: response.status,
@@ -113,6 +115,7 @@ export class OpenAICompatibleModel implements AgentModel {
       name: "llm.success",
       message: "Model request completed.",
       data: {
+        traceId: input.traceId,
         model: this.config.model,
         profile: this.config.profile ?? "openai",
         choices: payload.choices.length,

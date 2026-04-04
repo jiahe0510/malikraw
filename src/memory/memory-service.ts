@@ -1,7 +1,5 @@
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
 import { recordRuntimeObservation } from "../core/observability/observability.js";
-import { HeuristicEpisodeExtractor, LlmEpisodeExtractor } from "./extractors/episode-extractor.js";
-import { OpenAIMemoryClient } from "./extractors/openai-memory-client.js";
 import { FileBackedMemoryItemStore } from "./memory-item-store.js";
 import { MemoryRetriever } from "./memory-retriever.js";
 import { MemoryWriter } from "./memory-writer.js";
@@ -21,6 +19,7 @@ export class DefaultMemoryService implements MemoryService {
       name: "memory.retrieve",
       message: "Retrieved relevant memory for the current query.",
       data: {
+        traceId: input.context.traceId,
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
@@ -40,6 +39,7 @@ export class DefaultMemoryService implements MemoryService {
       name: "memory.save",
       message: "Persisted memory artifacts for the completed turn.",
       data: {
+        traceId: input.context.traceId,
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
@@ -59,24 +59,12 @@ export function createMemoryService(
   const memoryItemStore = new FileBackedMemoryItemStore();
   const toolChainStore = new FileBackedToolChainMemoryStore();
 
-  const memoryClient = new OpenAIMemoryClient({
-    baseURL: modelConfig.baseURL,
-    apiKey: modelConfig.apiKey,
-    model: modelConfig.model,
-    profile: modelConfig.profile,
-    temperature: 0,
-  });
-  const episodeExtractor = memoryClient
-    ? new LlmEpisodeExtractor(memoryClient)
-    : new HeuristicEpisodeExtractor();
-
   return new DefaultMemoryService(
     new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, modelConfig),
     new MemoryWriter(
       sessionStore,
       memoryItemStore,
       toolChainStore,
-      episodeExtractor,
     ),
   );
 }

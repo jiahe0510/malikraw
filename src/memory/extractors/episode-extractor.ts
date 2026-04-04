@@ -39,8 +39,7 @@ export class LlmEpisodeExtractor implements EpisodeExtractor {
 export function shouldExtractEpisode(input: MemoryWriteInput): boolean {
   return input.toolResults.some((result) => result.ok)
     || /done|completed|finished|已完成|完成了|决策|决定/i.test(input.assistantResponse)
-    || input.currentTaskState?.completedSteps.length !== undefined
-      && input.currentTaskState.completedSteps.length > 0;
+    || input.trigger === "compaction";
 }
 
 export function extractEpisodeHeuristically(input: MemoryWriteInput): EpisodicMemoryCandidate | undefined {
