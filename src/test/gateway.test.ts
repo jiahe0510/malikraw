@@ -9,12 +9,12 @@ import { FileBackedSessionStore, compactSessionMessages } from "../gateway/sessi
 
 test("gateway routes messages through channel and persists session history", async () => {
   const deliveries: ChannelDelivery[] = [];
-  const runtimeCalls: { userRequest: string; history?: AgentMessage[] }[] = [];
+  const runtimeCalls: { userRequest: string; history?: AgentMessage[]; traceId?: string }[] = [];
 
   const runtime: AgentRuntime = {
     workspaceRoot: "/tmp/workspace",
-    ask: async ({ userRequest, history }) => {
-      runtimeCalls.push({ userRequest, history });
+    ask: async ({ userRequest, history, traceId }) => {
+      runtimeCalls.push({ userRequest, history, traceId });
       const messages: AgentMessage[] = [
         ...(history ?? []),
         { role: "user", content: userRequest },
@@ -61,12 +61,53 @@ test("gateway routes messages through channel and persists session history", asy
   assert.equal(deliveries[0]?.content, "reply:hello");
   assert.equal(deliveries[1]?.content, "reply:again");
   assert.equal(runtimeCalls.length, 2);
+  assert.match(runtimeCalls[0]?.traceId ?? "", /^qry_/);
+  assert.match(runtimeCalls[1]?.traceId ?? "", /^qry_/);
+  assert.notEqual(runtimeCalls[0]?.traceId, runtimeCalls[1]?.traceId);
   assert.equal(runtimeCalls[0]?.history?.length ?? 0, 0);
   assert.equal(runtimeCalls[1]?.history?.length, 2);
   assert.deepEqual(
     runtimeCalls[1]?.history?.map((message) => `${message.role}:${message.content}`),
     ["user:hello", "assistant:reply:hello"],
   );
+});
+
+test("gateway preserves an existing inbound trace id", async () => {
+  let seenTraceId: string | undefined;
+
+  const runtime: AgentRuntime = {
+    workspaceRoot: "/tmp/workspace",
+    ask: async ({ traceId }) => {
+      seenTraceId = traceId;
+      return {
+        output: "ok",
+        visibleToolNames: [],
+        messages: [
+          { role: "user", content: "hello" },
+          { role: "assistant", content: "ok" },
+        ],
+        media: [],
+        messageDispatches: [],
+      };
+    },
+  };
+
+  const gateway = new Gateway(runtime);
+  gateway.registerChannel({
+    id: "tui",
+    sendMessage: () => {},
+  });
+
+  await gateway.handleMessage({
+    session: {
+      channelId: "tui",
+      sessionId: "session-1",
+      traceId: "qry_existing_trace",
+    },
+    content: "hello",
+  });
+
+  assert.equal(seenTraceId, "qry_existing_trace");
 });
 
 test("gateway isolates sessions by channel and session id", async () => {

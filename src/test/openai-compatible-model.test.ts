@@ -234,3 +234,87 @@ test("OpenAICompatibleModel writes llm request events", async () => {
     }
   }
 });
+
+test("OpenAICompatibleModel writes llm fail events for fetch-level network errors", async () => {
+  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-llm-events-"));
+  const previousHome = process.env.MALIKRAW_HOME;
+  const originalFetch = globalThis.fetch;
+  process.env.MALIKRAW_HOME = malikrawHome;
+  globalThis.fetch = async () => {
+    throw new TypeError("fetch failed");
+  };
+
+  try {
+    const model = new OpenAICompatibleModel({
+      baseURL: "https://example.invalid/v1",
+      apiKey: "dummy",
+      model: "test-model",
+      contextWindow: 8192,
+      compact: {
+        thresholdTokens: 4096,
+        targetTokens: 2048,
+      },
+    });
+
+    const traceId = "qry_test_fetch_fail";
+    await assert.rejects(
+      () => model.generate({
+        messages: [{ role: "user", content: "hi" } satisfies AgentMessage],
+        tools: [],
+        traceId,
+      }),
+      /fetch failed/,
+    );
+
+    const events = (await readFile(getRuntimeEventFilePath(), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const failEvent = events.find((event) => event.name === "llm.fail");
+
+    assert.equal(failEvent?.data?.traceId, traceId);
+    assert.equal(failEvent?.data?.networkError, true);
+    assert.equal(failEvent?.data?.error?.message, "fetch failed");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousHome === undefined) {
+      delete process.env.MALIKRAW_HOME;
+    } else {
+      process.env.MALIKRAW_HOME = previousHome;
+    }
+  }
+});
+
+test("OpenAICompatibleModel aborts requests after the configured timeout", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => new Promise((_, reject) => {
+    const signal = init?.signal as AbortSignal | undefined;
+    signal?.addEventListener("abort", () => {
+      reject(signal.reason ?? new Error("aborted"));
+    }, { once: true });
+  });
+
+  try {
+    const model = new OpenAICompatibleModel({
+      baseURL: "https://example.invalid/v1",
+      apiKey: "dummy",
+      model: "test-model",
+      contextWindow: 8192,
+      requestTimeoutMs: 10,
+      compact: {
+        thresholdTokens: 4096,
+        targetTokens: 2048,
+      },
+    });
+
+    await assert.rejects(
+      () => model.generate({
+        messages: [{ role: "user", content: "hi" } satisfies AgentMessage],
+        tools: [],
+      }),
+      /timed out/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

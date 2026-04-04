@@ -66,6 +66,7 @@ export class OpenAICompatibleModel implements AgentModel {
 
   async generate(input: AgentModelRequest): Promise<ModelTurnResponse> {
     const requestBody = buildRequestBody(this.config, input);
+    const timeoutMs = this.config.requestTimeoutMs ?? 30 * 60 * 1000;
     recordRuntimeObservation({
       name: "llm.start",
       message: "Started model request.",
@@ -73,20 +74,44 @@ export class OpenAICompatibleModel implements AgentModel {
         traceId: input.traceId,
         model: this.config.model,
         profile: this.config.profile ?? "openai",
+        timeoutMs,
         messageCount: requestBody.messages.length,
         toolCount: requestBody.tools?.length ?? 0,
         request: input.debug ? requestBody : summarizeRequestBody(requestBody),
       },
     });
 
-    const response = await fetch(buildChatCompletionsUrl(this.config.baseURL), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.config.apiKey}`,
-      },
-      body: JSON.stringify(requestBody),
-    });
+    const timeout = createRequestTimeout(timeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(buildChatCompletionsUrl(this.config.baseURL), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.config.apiKey}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: timeout.controller.signal,
+      });
+    } catch (error) {
+      recordRuntimeObservation({
+        name: "llm.fail",
+        level: "error",
+        message: "Model request failed before receiving an HTTP response.",
+        data: {
+          traceId: input.traceId,
+          model: this.config.model,
+          profile: this.config.profile ?? "openai",
+          networkError: true,
+          timeoutMs,
+          timeout: isAbortTimeoutError(error),
+          error: formatUnknownError(error),
+        },
+      });
+      throw error;
+    } finally {
+      timeout.dispose();
+    }
 
     if (!response.ok) {
       const body = await response.text();
@@ -279,4 +304,53 @@ function summarizeTransportContent(content: string | TransportContentPart[] | nu
   }
 
   return content.map((part) => part.text).join("\n");
+}
+
+function createRequestTimeout(timeoutMs: number): {
+  controller: AbortController;
+  dispose: () => void;
+} {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`LLM request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  return {
+    controller,
+    dispose: () => clearTimeout(timer),
+  };
+}
+
+function isAbortTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const record = error as Record<string, unknown>;
+  return record.name === "AbortError"
+    || (typeof record.message === "string" && record.message.toLowerCase().includes("timed out"));
+}
+
+function formatUnknownError(error: unknown): Record<string, unknown> | string {
+  if (error instanceof Error) {
+    const details: Record<string, unknown> = {
+      name: error.name,
+      message: error.message,
+    };
+    const cause = "cause" in error ? (error as Error & { cause?: unknown }).cause : undefined;
+    if (cause !== undefined) {
+      details.cause = typeof cause === "string" ? cause : safeStringify(cause);
+    }
+    return details;
+  }
+
+  return String(error);
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }

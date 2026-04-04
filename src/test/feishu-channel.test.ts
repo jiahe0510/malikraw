@@ -48,6 +48,7 @@ test("toChannelInboundMessage maps Feishu event metadata into a channel session"
       agentId: "planner",
       channelId: "feishu",
       sessionId: "ot_xxx",
+      traceId: "qry_omxxx",
       metadata: {
         feishuReplyMessageId: "om_xxx",
         feishuChatId: "oc_xxx",
@@ -83,6 +84,7 @@ test("toChannelInboundMessage strips the bot mention placeholder from text conte
   });
 
   assert.equal(message?.content, "hi");
+  assert.equal(message?.session.traceId, "qry_omstrip");
 });
 
 test("toChannelInboundMessage downloads inbound file attachments into the runtime directory", async () => {

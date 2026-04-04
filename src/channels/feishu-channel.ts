@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -478,6 +479,7 @@ export class FeishuChannel implements GatewayChannel {
         name: "channel.inbound.accepted",
         message: "Accepted inbound channel message for runtime handling.",
         data: {
+          traceId: message.session.traceId,
           channelId: this.id,
           channelType: "feishu",
           messageId: data.message.message_id,
@@ -496,6 +498,7 @@ export class FeishuChannel implements GatewayChannel {
       await context.handleMessage(message);
     } catch (error) {
       recordFeishuInboundEvent(this.id, "channel.inbound.failed", data, {
+        traceId: createFeishuInboundTraceId(data.message.message_id),
         reason: "handler_error",
         error: error instanceof Error ? error.message : String(error),
       });
@@ -660,6 +663,7 @@ export async function toChannelInboundMessage(
       agentId: config.agentId,
       channelId: config.id,
       sessionId: data.message.thread_id || data.message.chat_id,
+      traceId: createFeishuInboundTraceId(data.message.message_id),
       ...((data.sender.sender_id?.open_id
         ?? data.sender.sender_id?.user_id
         ?? data.sender.sender_id?.union_id)
@@ -731,6 +735,7 @@ function recordFeishuInboundEvent(
     name,
     message: "Observed inbound Feishu message.",
     data: {
+      traceId: typeof extra.traceId === "string" ? extra.traceId : createFeishuInboundTraceId(data.message.message_id),
       channelId,
       channelType: "feishu",
       messageId: data.message.message_id,
@@ -744,6 +749,15 @@ function recordFeishuInboundEvent(
       ...extra,
     },
   });
+}
+
+function createFeishuInboundTraceId(messageId: string): string {
+  const normalized = messageId.replace(/[^a-zA-Z0-9]+/g, "");
+  if (normalized) {
+    return `qry_${normalized}`;
+  }
+
+  return `qry_${randomUUID().replace(/-/g, "")}`;
 }
 
 function truncateLogField(value: string, maxLength: number): string {

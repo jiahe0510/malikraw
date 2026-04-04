@@ -44,6 +44,7 @@ export type AgentRuntime = {
     agentId?: string;
     channelId?: string;
     projectId?: string;
+    traceId?: string;
   }): Promise<{
     output: string;
     visibleToolNames: string[];
@@ -59,6 +60,7 @@ export type AgentRuntime = {
     agentId?: string;
     channelId?: string;
     projectId?: string;
+    traceId?: string;
   }): AsyncGenerator<AgentLoopEvent, {
     output: string;
     visibleToolNames: string[];
@@ -144,7 +146,7 @@ async function* executeRuntimeTurnEvents(
   dependencies: RuntimeDependencies,
   input: RuntimeAskInput,
 ): AsyncGenerator<AgentLoopEvent, RuntimeTurnExecution, void> {
-  const traceId = createRuntimeTraceId();
+  const traceId = input.traceId ?? createRuntimeTraceId();
   const promptContent = await loadRuntimePromptContent();
   const memoryContext = resolveMemoryContext(input, traceId);
   const initialMemory = await dependencies.memoryService.retrieve({

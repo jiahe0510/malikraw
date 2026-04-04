@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { AgentMessage } from "../core/agent/types.js";
 import type { AgentRuntime } from "../runtime/create-agent-runtime.js";
 import type { ChannelDelivery, ChannelInboundMessage, GatewayChannel, MessageDispatch } from "./channel.js";
@@ -29,45 +31,52 @@ export class Gateway {
   }
 
   async handleMessage(message: ChannelInboundMessage): Promise<GatewayHandleMessageResult> {
-    const channel = this.channels.get(message.session.channelId);
+    const session = ensureGatewayTraceId(message.session);
+    const enrichedMessage = {
+      ...message,
+      session,
+    };
+    const channel = this.channels.get(session.channelId);
     if (!channel) {
-      throw new Error(`Channel "${message.session.channelId}" is not registered.`);
+      throw new Error(`Channel "${session.channelId}" is not registered.`);
     }
 
-    const runtime = this.resolveRuntime(message.session.agentId);
-    const history = await this.sessionStore.read(message.session);
-    const userRequest = buildInboundUserRequest(message);
+    const runtime = this.resolveRuntime(session.agentId);
+    const history = await this.sessionStore.read(session);
+    const userRequest = buildInboundUserRequest(enrichedMessage);
     logGatewayEvent("inbound", {
-      agentId: message.session.agentId ?? "default",
-      channelId: message.session.channelId,
-      sessionId: message.session.sessionId,
+      traceId: session.traceId,
+      agentId: session.agentId ?? "default",
+      channelId: session.channelId,
+      sessionId: session.sessionId,
       historyLength: history.length,
       contentPreview: userRequest,
-      mediaCount: message.media?.length ?? 0,
+      mediaCount: enrichedMessage.media?.length ?? 0,
     });
 
     const runtimeInput = {
       userRequest,
       history,
-      sessionId: message.session.sessionId,
-      userId: message.session.userId ?? message.session.metadata?.userId,
-      agentId: message.session.agentId,
-      channelId: message.session.channelId,
-      projectId: message.session.projectId ?? message.session.metadata?.projectId,
+      sessionId: session.sessionId,
+      userId: session.userId ?? session.metadata?.userId,
+      agentId: session.agentId,
+      channelId: session.channelId,
+      projectId: session.projectId ?? session.metadata?.projectId,
+      traceId: session.traceId,
     };
     const result = runtime.askEvents
-      ? await this.consumeRuntimeEvents(channel, message, runtime.askEvents(runtimeInput))
+      ? await this.consumeRuntimeEvents(channel, enrichedMessage, runtime.askEvents(runtimeInput))
       : await runtime.ask(runtimeInput);
 
     const sessionMessages = filterSessionMessages(result.messages);
-    await this.sessionStore.write(message.session, sessionMessages);
+    await this.sessionStore.write(session, sessionMessages);
 
     for (const dispatch of result.messageDispatches) {
-      await this.dispatchStructuredMessage(message.session, dispatch);
+      await this.dispatchStructuredMessage(session, dispatch);
     }
 
     const delivery: ChannelDelivery = {
-      session: message.session,
+      session,
       content: result.output,
       visibleToolNames: result.visibleToolNames,
       media: result.media,
@@ -75,9 +84,10 @@ export class Gateway {
     await channel.sendMessage(delivery);
 
     logGatewayEvent("outbound", {
-      agentId: message.session.agentId ?? "default",
-      channelId: message.session.channelId,
-      sessionId: message.session.sessionId,
+      traceId: session.traceId,
+      agentId: session.agentId ?? "default",
+      channelId: session.channelId,
+      sessionId: session.sessionId,
       toolCount: result.visibleToolNames.length,
       contentPreview: result.output,
     });
@@ -103,7 +113,7 @@ export class Gateway {
       }
 
       console.log(
-        `[gateway:event] agent=${message.session.agentId ?? "default"} channel=${message.session.channelId} session=${message.session.sessionId} type=${next.value.type}`,
+        `[gateway:event] trace=${message.session.traceId ?? "-"} agent=${message.session.agentId ?? "default"} channel=${message.session.channelId} session=${message.session.sessionId} type=${next.value.type}`,
       );
       await channel.handleRuntimeEvent?.({
         session: message.session,
@@ -135,7 +145,7 @@ export class Gateway {
     }
 
     console.log(
-      `[gateway:dispatch] agent=${targetSession.agentId ?? "default"} channel=${targetSession.channelId} session=${targetSession.sessionId} media=${dispatch.media?.length ?? 0} preview=${JSON.stringify(truncate(dispatch.content))}`,
+      `[gateway:dispatch] trace=${targetSession.traceId ?? "-"} agent=${targetSession.agentId ?? "default"} channel=${targetSession.channelId} session=${targetSession.sessionId} media=${dispatch.media?.length ?? 0} preview=${JSON.stringify(truncate(dispatch.content))}`,
     );
     await targetChannel.sendMessage({
       session: targetSession,
@@ -155,6 +165,7 @@ function filterSessionMessages(messages: AgentMessage[]): AgentMessage[] {
 function logGatewayEvent(
   direction: "inbound" | "outbound",
   payload: {
+    traceId?: string;
     agentId: string;
     channelId: string;
     sessionId: string;
@@ -168,8 +179,19 @@ function logGatewayEvent(
     ? `history=${payload.historyLength ?? 0} media=${payload.mediaCount ?? 0}`
     : `tools=${payload.toolCount ?? 0}`;
   console.log(
-    `[gateway:${direction}] agent=${payload.agentId} channel=${payload.channelId} session=${payload.sessionId} ${suffix} preview=${JSON.stringify(truncate(payload.contentPreview))}`,
+    `[gateway:${direction}] trace=${payload.traceId ?? "-"} agent=${payload.agentId} channel=${payload.channelId} session=${payload.sessionId} ${suffix} preview=${JSON.stringify(truncate(payload.contentPreview))}`,
   );
+}
+
+function ensureGatewayTraceId(session: ChannelInboundMessage["session"]): ChannelInboundMessage["session"] {
+  if (session.traceId) {
+    return session;
+  }
+
+  return {
+    ...session,
+    traceId: `qry_${randomUUID().replace(/-/g, "")}`,
+  };
 }
 
 function buildInboundUserRequest(message: ChannelInboundMessage): string {

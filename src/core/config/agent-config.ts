@@ -12,11 +12,14 @@ export type OpenAICompatibleConfig = {
   temperature?: number;
   contextWindow: number;
   maxTokens?: number;
+  requestTimeoutMs?: number;
   compact: {
     thresholdTokens: number;
     targetTokens: number;
   };
 };
+
+const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 
 export type RuntimeConfig = {
   model: OpenAICompatibleConfig;
@@ -56,6 +59,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
       temperature: providerConfig.temperature ?? 0.2,
       contextWindow: providerConfig.contextWindow ?? 32_768,
       maxTokens: providerConfig.maxTokens ?? 4096,
+      requestTimeoutMs: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       compact: {
         thresholdTokens: defaultCompactThreshold(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
         targetTokens: defaultCompactTarget(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
@@ -206,6 +210,7 @@ function toModelConfig(providerConfig: {
     temperature: providerConfig.temperature ?? 0.2,
     contextWindow,
     maxTokens,
+    requestTimeoutMs: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
     compact: {
       thresholdTokens: defaultCompactThreshold(contextWindow, maxTokens),
       targetTokens: defaultCompactTarget(contextWindow, maxTokens),

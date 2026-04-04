@@ -6,6 +6,7 @@ export type ChannelSession = {
   projectId?: string;
   channelId: string;
   sessionId: string;
+  traceId?: string;
   metadata?: Record<string, string>;
 };
 
