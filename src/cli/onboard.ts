@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import { loadRuntimeConfig } from "../core/config/agent-config.js";
 import {
   loadConfigBundle,
@@ -18,7 +16,6 @@ import {
   saveConfigBundle,
 } from "../core/config/config-store.js";
 import type { ProviderProfile } from "../core/providers/compatibility-profile.js";
-import { installBundledSkills, listBundledSkillIds } from "../runtime/bundled-skills.js";
 import { getWorkspaceRoot } from "../runtime/workspace-context.js";
 import { getServiceStatus, restartBackgroundService, startBackgroundService } from "./service-manager.js";
 import { promptMultiSelect, promptSelectWithDefault, promptText } from "./terminal-ui.js";
@@ -37,12 +34,10 @@ export async function runOnboardWizard(): Promise<void> {
 
   const existing = loadConfigBundle();
   const existingProvider = getExistingProvider(existing);
-  const existingAgents = existing.agents?.agents ?? [];
   const provider = await collectProvider(existingProvider);
   const workspaceRoot = getWorkspaceRoot();
 
-  const availableSkillIds = await listBundledSkillIds();
-  const agents = await collectAgents(provider.id, availableSkillIds, existingAgents);
+  const agents = collectAgents(provider.id);
   const defaultAgentId = agents[0]?.id ?? "main";
   const channels = await collectChannels(existing.channels?.channels ?? [], defaultAgentId, agents.map((agent) => agent.id));
   const tools = await collectToolsConfig(existing.tools);
@@ -92,14 +87,9 @@ export async function runOnboardWizard(): Promise<void> {
     memory,
   });
 
-  await installBundledSkills(
-    [...new Set(agents.flatMap((agent) => agent.activeSkillIds))],
-    workspaceRoot,
-  );
-
   console.log("");
   console.log("Configuration saved.");
-  console.log(`Installed skills into ${workspaceRoot}/skills`);
+  console.log(`Workspace root: ${workspaceRoot}`);
 
   if (startNow === "yes") {
     loadRuntimeConfig();
@@ -118,7 +108,10 @@ async function collectProvider(existingProvider: StoredProviderConfig | undefine
       { label: "OpenAI-compatible", value: "openai" },
       { label: "DeepSeek-compatible", value: "deepseek" },
       { label: "Qwen-compatible", value: "qwen" },
-      ...(existingProvider ? [{ label: "Use existing provider", value: "__existing__" as const }] : []),
+      ...(existingProvider ? [{
+        label: `Use existing provider (${formatProviderSummary(existingProvider)})`,
+        value: "__existing__" as const,
+      }] : []),
     ],
     existingProvider ? "__existing__" : defaultProfile,
   );
@@ -152,45 +145,15 @@ async function collectProvider(existingProvider: StoredProviderConfig | undefine
       "Max output tokens",
       String(existingProvider?.maxTokens ?? 4096),
     ),
-    compact: {
-      instructionPath: emptyToUndefined(
-        await promptText(
-          "Compact instruction path",
-          existingProvider?.compact?.instructionPath || path.join(getWorkspaceRoot(), "COMPACT.md"),
-        ),
-      ),
-    },
   });
 }
 
-async function collectAgents(
+function collectAgents(
   providerId: string,
-  availableSkillIds: string[],
-  existingAgents: StoredAgentConfig[],
-): Promise<StoredAgentConfig[]> {
-  const existingAgent = existingAgents.find((agent) => agent.id === "main") ?? existingAgents[0];
-  const { selectedValues: activeSkillIds, useExisting } = await promptMultiSelectOrUseExisting(
-    "Select skills for this agent",
-    availableSkillIds.map((skillId) => ({
-      label: skillId,
-      value: skillId,
-    })),
-    [],
-    existingAgent?.activeSkillIds ?? [],
-    existingAgent?.activeSkillIds ?? [],
-  );
-
-  if (useExisting && existingAgent) {
-    return [{
-      id: "main",
-      activeSkillIds: existingAgent.activeSkillIds,
-      providerId,
-    }];
-  }
-
+): StoredAgentConfig[] {
   return [{
     id: "main",
-    activeSkillIds,
+    activeSkillIds: [],
     providerId,
   }];
 }
@@ -215,6 +178,9 @@ async function collectChannels(
     [],
     existingChannels,
     existingChannels.map((channel) => channel.type as ChannelSelection),
+    existingChannels.length > 0
+      ? `Use existing channels (${formatChannelsSummary(existingChannels)})`
+      : undefined,
   );
 
   if (useExisting) {
@@ -302,6 +268,9 @@ async function collectToolsConfig(existingTools: StoredToolsConfig | undefined):
     [],
     existingTools,
     existingTools?.braveSearchApiKey ? ["web_search"] : [],
+    existingTools
+      ? `Use existing tools (${formatToolsSummary(existingTools)})`
+      : undefined,
   );
 
   if (useExisting && existingTools) {
@@ -333,11 +302,6 @@ function compactProviderConfig(provider: StoredProviderConfig): StoredProviderCo
     temperature: provider.temperature,
     contextWindow: provider.contextWindow,
     maxTokens: provider.maxTokens,
-    compact: provider.compact
-      ? {
-        instructionPath: provider.compact.instructionPath,
-      }
-      : undefined,
   };
 }
 
@@ -375,9 +339,13 @@ async function promptMultiSelectOrUseExisting<T extends string>(
   defaultValues: readonly T[],
   existingMarker: unknown,
   existingValues: readonly T[] = defaultValues,
+  existingLabel?: string,
 ): Promise<MultiSelectResult<T>> {
   const choices = hasExistingSelection(existingMarker, existingValues)
-    ? [...options, { label: "Skip and use existing", value: "__use_existing__" as ExistingMultiValue }]
+    ? [...options, {
+      label: existingLabel ?? "Skip and use existing",
+      value: "__use_existing__" as ExistingMultiValue,
+    }]
     : options;
   const selected = await promptMultiSelect<T | ExistingMultiValue>(question, choices, defaultValues);
 
@@ -438,4 +406,57 @@ function hasExistingSelection(existingMarker: unknown, existingValues: readonly 
   }
 
   return Boolean(existingMarker);
+}
+
+export function maskSecret(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return "(empty)";
+  }
+
+  if (trimmed.length <= 6) {
+    return `${trimmed[0] ?? ""}***${trimmed.at(-1) ?? ""}`;
+  }
+
+  return `${trimmed.slice(0, 3)}***${trimmed.slice(-3)}`;
+}
+
+export function formatProviderSummary(provider: StoredProviderConfig): string {
+  return [
+    provider.profile ?? "openai",
+    provider.model,
+    simplifyUrl(provider.baseURL),
+    `key=${maskSecret(provider.apiKey)}`,
+  ].join(" | ");
+}
+
+export function formatChannelsSummary(channels: StoredChannelConfig[]): string {
+  if (channels.length === 0) {
+    return "none";
+  }
+
+  return channels
+    .map((channel) => {
+      if (channel.type === "feishu") {
+        return `feishu:${channel.id} agent=${channel.agentId}`;
+      }
+
+      return `${channel.type}:${channel.id} agent=${channel.agentId}`;
+    })
+    .join(", ");
+}
+
+export function formatToolsSummary(tools: StoredToolsConfig | undefined): string {
+  const enabled: string[] = [];
+  if (tools?.braveSearchApiKey) {
+    enabled.push(`web_search key=${maskSecret(tools.braveSearchApiKey)}`);
+  }
+
+  return enabled.length > 0 ? enabled.join(", ") : "none";
+}
+
+function simplifyUrl(value: string): string {
+  return value
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
 }

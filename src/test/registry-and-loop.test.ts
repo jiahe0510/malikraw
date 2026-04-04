@@ -182,7 +182,7 @@ test("finalizeQueryContext appends system context and user reminder without flat
   assert.match(prompt.messages[1]?.content ?? "", /Channel: feishu/);
   assert.equal(prompt.messages[2]?.role, "user");
   assert.match(prompt.messages[2]?.content ?? "", /<system-reminder>/);
-  assert.match(prompt.messages[2]?.content ?? "", /Workspace MEMORY\.md/);
+  assert.match(prompt.messages[2]?.content ?? "", /Memory Guidance/);
   assert.equal(prompt.messages[3]?.content, "earlier");
   assert.equal(prompt.messages[4]?.content, "latest");
 });

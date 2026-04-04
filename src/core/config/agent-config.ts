@@ -15,7 +15,6 @@ export type OpenAICompatibleConfig = {
   compact: {
     thresholdTokens: number;
     targetTokens: number;
-    instructionPath?: string;
   };
 };
 
@@ -60,7 +59,6 @@ export function loadRuntimeConfig(): RuntimeConfig {
       compact: {
         thresholdTokens: defaultCompactThreshold(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
         targetTokens: defaultCompactTarget(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
-        instructionPath: providerConfig.compact?.instructionPath?.trim() || undefined,
       },
     },
     workspaceRoot: stored.workspace?.workspaceRoot || getWorkspaceRoot(),
@@ -197,9 +195,6 @@ function toModelConfig(providerConfig: {
   temperature?: number;
   contextWindow?: number;
   maxTokens?: number;
-  compact?: {
-    instructionPath?: string;
-  };
 }): OpenAICompatibleConfig {
   const contextWindow = providerConfig.contextWindow ?? 32_768;
   const maxTokens = providerConfig.maxTokens ?? 4096;
@@ -214,7 +209,6 @@ function toModelConfig(providerConfig: {
     compact: {
       thresholdTokens: defaultCompactThreshold(contextWindow, maxTokens),
       targetTokens: defaultCompactTarget(contextWindow, maxTokens),
-      instructionPath: providerConfig.compact?.instructionPath?.trim() || undefined,
     },
   };
 }

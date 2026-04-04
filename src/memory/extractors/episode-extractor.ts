@@ -1,4 +1,5 @@
 import type { TransportMessage } from "../../core/providers/index.js";
+import { buildMemorySaveSystemPrompt, buildMemorySaveUserPayload } from "../internal-prompts.js";
 import type { EpisodeExtractor, EpisodicMemoryCandidate, MemoryWriteInput } from "../types.js";
 import { OpenAIMemoryClient } from "./openai-memory-client.js";
 
@@ -70,19 +71,10 @@ export function extractEpisodeHeuristically(input: MemoryWriteInput): EpisodicMe
 function buildEpisodePrompt(input: MemoryWriteInput): TransportMessage[] {
   return [{
     role: "system",
-    content: [
-      "Summarize the latest task turn into one compact episodic memory entry.",
-      "Return strict JSON with shape {\"episode\": {\"summary\": string, \"entities\": string[], \"importance\": number, \"confidence\": number}}",
-      "Focus on what was discussed, what decisions were made, and what outcome was produced.",
-    ].join("\n"),
+    content: buildMemorySaveSystemPrompt(),
   }, {
     role: "user",
-    content: JSON.stringify({
-      userMessage: input.userMessage,
-      assistantResponse: input.assistantResponse,
-      toolResults: input.toolResults,
-      taskState: input.currentTaskState,
-    }),
+    content: buildMemorySaveUserPayload(input),
   }];
 }
 

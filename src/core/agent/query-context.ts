@@ -116,7 +116,7 @@ function toSystemMessages(title: string, content: string | undefined): PromptMes
 
 function buildUserContextReminder(context: QueryContext): string | undefined {
   const sections = [
-    ["Workspace MEMORY.md", context.memorySystemContent],
+    ["Memory Guidance", context.memorySystemContent],
     ["Retrieved Memory", context.relevantMemoryBlock],
     ...Object.entries(context.userContext),
   ]

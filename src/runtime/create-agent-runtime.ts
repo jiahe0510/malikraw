@@ -17,6 +17,7 @@ import type { AgentLoopEvent, AgentMessage } from "../core/agent/types.js";
 import { createMemoryService } from "../memory/memory-service.js";
 import { runMemoryMigrations } from "../memory/migrate.js";
 import { compactContextIfNeeded, reactivelyCompactMessages } from "./context-compactor.js";
+import { BUILT_IN_MEMORY_GUIDANCE, buildBuiltInCompactionPrompt } from "./internal-prompts.js";
 import { readBundledPersonalityFile } from "./system-template-context.js";
 import type { MessageDispatch } from "../channels/channel.js";
 import {
@@ -24,9 +25,7 @@ import {
   getSkillsDirectory,
   getWorkspaceRoot,
   readWorkspaceAgentFile,
-  readWorkspaceCompactFile,
   readWorkspaceIdentityFile,
-  readWorkspaceMemoryFile,
   readWorkspacePersonalityFile,
   setWorkspaceRoot,
 } from "./workspace-context.js";
@@ -220,8 +219,8 @@ async function loadRuntimePromptContent(): Promise<RuntimePromptContent> {
     personalitySystemContent: await readWorkspacePersonalityFile()
       ?? await readBundledPersonalityFile(),
     agentSystemContent: await readWorkspaceAgentFile(),
-    memorySystemContent: await readWorkspaceMemoryFile(),
-    compactInstructionContent: await readWorkspaceCompactFile(),
+    memorySystemContent: BUILT_IN_MEMORY_GUIDANCE,
+    compactInstructionContent: buildBuiltInCompactionPrompt(),
   };
 }
 

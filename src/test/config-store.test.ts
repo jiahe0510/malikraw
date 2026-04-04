@@ -32,9 +32,6 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
           temperature: 0.3,
           contextWindow: 16384,
           maxTokens: 2048,
-          compact: {
-            instructionPath: "/tmp/compact.md",
-          },
         }],
       },
       agentProviderMapping: {
@@ -85,7 +82,6 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
     assert.equal(config.model.maxTokens, 2048);
     assert.equal(config.model.compact.thresholdTokens, 11315);
     assert.equal(config.model.compact.targetTokens, 6789);
-    assert.equal(config.model.compact.instructionPath, "/tmp/compact.md");
     assert.equal(config.workspaceRoot, path.join(malikrawHome, "workspace"));
     assert.deepEqual(config.activeSkillIds, ["workspace_operator", "reviewer"]);
     assert.equal(config.globalPolicy, "stored policy");
@@ -122,7 +118,6 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
         compact: {
           thresholdTokens: 11315,
           targetTokens: 6789,
-          instructionPath: "/tmp/compact.md",
         },
       },
       activeSkillIds: ["workspace_operator", "reviewer"],

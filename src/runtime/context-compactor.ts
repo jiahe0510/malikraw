@@ -1,10 +1,8 @@
-import { readFile } from "node:fs/promises";
-
 import type { AgentMessage, AgentModel } from "../core/agent/types.js";
 import { createTextMessage, getMessageText } from "../core/agent/message-content.js";
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
 import { recordRuntimeObservation } from "../core/observability/observability.js";
-import { readCompactTemplateFile } from "./system-template-context.js";
+import { buildBuiltInCompactionPrompt } from "./internal-prompts.js";
 
 const COMPACTED_HISTORY_PREFIX = "[compacted_history]\n";
 const COMPACTED_TOOL_RESULT_PREFIX = "[compacted_tool_result]";
@@ -396,7 +394,6 @@ async function summarizeHistory(
 
   const guidance = await loadCompactionInstruction(
     input.compactInstructionContent,
-    input.modelConfig.compact.instructionPath,
   );
   const renderedHistory = renderCompactedHistory(messages);
 
@@ -430,19 +427,8 @@ async function summarizeHistory(
 
 async function loadCompactionInstruction(
   inlineContent: string | undefined,
-  configuredPath: string | undefined,
 ): Promise<string> {
-  if (inlineContent?.trim()) {
-    return inlineContent.trim();
-  }
-
-  if (configuredPath?.trim()) {
-    const content = await readFile(configuredPath.trim(), "utf8");
-    return content.trim();
-  }
-
-  return (await readCompactTemplateFile())?.trim()
-    || "Compress prior conversation history into a concise, loss-aware summary.";
+  return buildBuiltInCompactionPrompt(inlineContent);
 }
 
 function buildSessionCompactHistory(

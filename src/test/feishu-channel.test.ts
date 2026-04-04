@@ -17,6 +17,7 @@ import {
   shouldRespondToFeishuMessage,
   toChannelInboundMessage,
 } from "../channels/feishu-channel.js";
+import { getRuntimeEventFilePath } from "../core/observability/observability.js";
 import { clearWorkspaceRoot, setWorkspaceRoot } from "../index.js";
 
 test("extractFeishuText returns trimmed text messages only", () => {
@@ -194,6 +195,17 @@ test("shouldRespondToFeishuMessage allows private chats without an explicit ment
       mentions: [],
     },
   }, "ou_bot"), true);
+
+  assert.equal(shouldRespondToFeishuMessage({
+    message: {
+      message_id: "om_single",
+      chat_id: "oc_single",
+      chat_type: "single",
+      message_type: "text",
+      content: JSON.stringify({ text: "hello" }),
+      mentions: [],
+    },
+  }, "ou_bot"), true);
 });
 
 test("shouldRespondToFeishuMessage requires an explicit mention in group chats", () => {
@@ -222,6 +234,17 @@ test("shouldRespondToFeishuMessage requires an explicit mention in group chats",
       }],
     },
   }, "ou_bot"), true);
+
+  assert.equal(shouldRespondToFeishuMessage({
+    message: {
+      message_id: "om_topic_1",
+      chat_id: "oc_topic_1",
+      chat_type: "topic_group",
+      message_type: "text",
+      content: JSON.stringify({ text: "hello" }),
+      mentions: [],
+    },
+  }, "ou_bot"), false);
 });
 
 test("FeishuChannel adds and removes a processing reaction around handled messages", async () => {
@@ -313,6 +336,94 @@ test("FeishuChannel adds and removes a processing reaction around handled messag
 
   assert.equal(handledContent, "hello");
   assert.deepEqual(reactions, ["create", "delete"]);
+});
+
+test("FeishuChannel writes inbound observability events for ignored and accepted messages", async () => {
+  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-feishu-events-"));
+  const previousHome = process.env.MALIKRAW_HOME;
+  process.env.MALIKRAW_HOME = malikrawHome;
+
+  try {
+    const handled: string[] = [];
+    const channel = Object.assign(Object.create(FeishuChannel.prototype), {
+      id: "feishu",
+      config: {
+        id: "feishu",
+        type: "feishu",
+        appId: "app-id",
+        appSecret: "app-secret",
+      },
+      seenMessageIds: new Map<string, number>(),
+      shouldHandleMessage: () => true,
+      addProcessingReaction: async () => undefined,
+      removeProcessingReaction: async () => {},
+    }) as FeishuChannel;
+
+    (channel as unknown as { botOpenId?: string }).botOpenId = "ou_bot";
+    (channel as unknown as { client: unknown }).client = {
+      im: {
+        message: {
+          reply: async () => ({ code: 0 }),
+          create: async () => ({ code: 0 }),
+        },
+      },
+    };
+
+    await (channel as unknown as {
+      handleInboundEvent: (context: { handleMessage: (message: { content: string }) => Promise<void> }, data: unknown) => Promise<void>;
+    }).handleInboundEvent({
+      handleMessage: async (message) => {
+        handled.push(message.content);
+      },
+    }, {
+      sender: { sender_type: "user" },
+      message: {
+        message_id: "om_group_ignored",
+        chat_id: "oc_group",
+        chat_type: "group",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello" }),
+        mentions: [],
+      },
+    });
+
+    await (channel as unknown as {
+      handleInboundEvent: (context: { handleMessage: (message: { content: string }) => Promise<void> }, data: unknown) => Promise<void>;
+    }).handleInboundEvent({
+      handleMessage: async (message) => {
+        handled.push(message.content);
+      },
+    }, {
+      sender: {
+        sender_type: "user",
+        sender_id: { open_id: "ou_user" },
+      },
+      message: {
+        message_id: "om_private_ok",
+        chat_id: "oc_private",
+        chat_type: "single",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello bot" }),
+        mentions: [],
+      },
+    });
+
+    assert.deepEqual(handled, ["hello bot"]);
+
+    const eventNames = (await readFile(getRuntimeEventFilePath(), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).name);
+    assert.ok(eventNames.includes("channel.inbound.received"));
+    assert.ok(eventNames.includes("channel.inbound.ignored"));
+    assert.ok(eventNames.includes("channel.inbound.accepted"));
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.MALIKRAW_HOME;
+    } else {
+      process.env.MALIKRAW_HOME = previousHome;
+    }
+  }
 });
 
 test("FeishuChannel emits tool-result runtime events as progress replies", async () => {

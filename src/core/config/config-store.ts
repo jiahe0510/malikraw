@@ -30,9 +30,6 @@ export type StoredProviderConfig = {
   temperature?: number;
   contextWindow?: number;
   maxTokens?: number;
-  compact?: {
-    instructionPath?: string;
-  };
 };
 
 export type StoredProvidersConfig = {

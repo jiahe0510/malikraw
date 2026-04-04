@@ -5,6 +5,7 @@ import path from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type { StoredFeishuChannelConfig } from "../core/config/config-store.js";
+import { recordRuntimeObservation } from "../core/observability/observability.js";
 import type {
   ChannelDelivery,
   ChannelInboundMessage,
@@ -422,8 +423,15 @@ export class FeishuChannel implements GatewayChannel {
     context: ChannelStartContext,
     data: FeishuReceiveMessageEvent,
   ): Promise<void> {
+    recordFeishuInboundEvent(this.id, "channel.inbound.received", data, {
+      reason: "received",
+    });
+
     if (data.sender.sender_type !== "user") {
       console.log(`[channel:feishu] ignored senderType=${data.sender.sender_type} id=${this.id}`);
+      recordFeishuInboundEvent(this.id, "channel.inbound.ignored", data, {
+        reason: "sender_not_user",
+      });
       return;
     }
 
@@ -435,6 +443,9 @@ export class FeishuChannel implements GatewayChannel {
       console.log(
         `[channel:feishu] deduplicated id=${this.id} messageId=${data.message.message_id} chatId=${data.message.chat_id}`,
       );
+      recordFeishuInboundEvent(this.id, "channel.inbound.ignored", data, {
+        reason: "deduplicated",
+      });
       return;
     }
 
@@ -442,22 +453,52 @@ export class FeishuChannel implements GatewayChannel {
       console.log(
         `[channel:feishu] ignored unmentioned message id=${this.id} messageId=${data.message.message_id} chatId=${data.message.chat_id}`,
       );
+      recordFeishuInboundEvent(this.id, "channel.inbound.ignored", data, {
+        reason: "mention_required",
+        botOpenId: this.botOpenId,
+      });
       return;
     }
 
     const reactionId = await this.addProcessingReaction(data.message.message_id);
     try {
-    const message = await toChannelInboundMessage(this.config, data, {
-      client: this.client,
-      botOpenId: this.botOpenId,
-    });
+      const message = await toChannelInboundMessage(this.config, data, {
+        client: this.client,
+        botOpenId: this.botOpenId,
+      });
       if (!message) {
+        recordFeishuInboundEvent(this.id, "channel.inbound.rejected", data, {
+          reason: "unsupported_or_empty",
+        });
         await this.replyUnsupportedMessage(data);
         return;
       }
 
+      recordRuntimeObservation({
+        name: "channel.inbound.accepted",
+        message: "Accepted inbound channel message for runtime handling.",
+        data: {
+          channelId: this.id,
+          channelType: "feishu",
+          messageId: data.message.message_id,
+          chatId: data.message.chat_id,
+          threadId: data.message.thread_id ?? "-",
+          chatType: data.message.chat_type,
+          messageType: data.message.message_type,
+          sessionId: message.session.sessionId,
+          userId: message.session.userId ?? "-",
+          agentId: message.session.agentId ?? "-",
+          mediaCount: message.media?.length ?? 0,
+          contentPreview: truncateLogField(message.content, 200),
+          reason: "forwarded_to_runtime",
+        },
+      });
       await context.handleMessage(message);
     } catch (error) {
+      recordFeishuInboundEvent(this.id, "channel.inbound.failed", data, {
+        reason: "handler_error",
+        error: error instanceof Error ? error.message : String(error),
+      });
       const content = error instanceof Error ? error.message : String(error);
       await this.replyToEvent(data, content);
     } finally {
@@ -668,11 +709,45 @@ export function shouldRespondToFeishuMessage(
   event: Pick<FeishuReceiveMessageEvent, "message">,
   botOpenId?: string,
 ): boolean {
-  if (event.message.chat_type !== "group") {
+  if (!isFeishuGroupChatType(event.message.chat_type)) {
     return true;
   }
 
   return isFeishuBotMentioned(event, botOpenId);
+}
+
+function isFeishuGroupChatType(chatType: string | undefined): boolean {
+  const normalized = chatType?.trim().toLowerCase();
+  return normalized === "group" || normalized === "topic_group";
+}
+
+function recordFeishuInboundEvent(
+  channelId: string,
+  name: "channel.inbound.received" | "channel.inbound.ignored" | "channel.inbound.rejected" | "channel.inbound.failed",
+  data: FeishuReceiveMessageEvent,
+  extra: Record<string, unknown>,
+): void {
+  recordRuntimeObservation({
+    name,
+    message: "Observed inbound Feishu message.",
+    data: {
+      channelId,
+      channelType: "feishu",
+      messageId: data.message.message_id,
+      chatId: data.message.chat_id,
+      threadId: data.message.thread_id ?? "-",
+      chatType: data.message.chat_type,
+      messageType: data.message.message_type,
+      senderType: data.sender.sender_type,
+      mentionCount: data.message.mentions?.length ?? 0,
+      contentPreview: truncateLogField(extractFeishuText(data.message.message_type, data.message.content) ?? "", 200),
+      ...extra,
+    },
+  });
+}
+
+function truncateLogField(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }
 
 function normalizeFeishuInboundContent(

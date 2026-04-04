@@ -8,14 +8,10 @@ import {
   clearWorkspaceRoot,
   ensureWorkspaceInitialized,
   getWorkspaceAgentFilePath,
-  getWorkspaceCompactFilePath,
   getWorkspaceIdentityFilePath,
-  getWorkspaceMemoryFilePath,
   getWorkspacePersonalityFilePath,
   readWorkspaceAgentFile,
-  readWorkspaceCompactFile,
   readWorkspaceIdentityFile,
-  readWorkspaceMemoryFile,
   readWorkspacePersonalityFile,
   setWorkspaceRoot,
 } from "../index.js";
@@ -74,38 +70,15 @@ test("workspace initialization seeds IDENTITY.md", async () => {
   }
 });
 
-test("workspace initialization seeds MEMORY.md", async () => {
+test("workspace initialization does not seed MEMORY.md or COMPACT.md prompts", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "malikraw-workspace-"));
   setWorkspaceRoot(workspace);
 
   try {
     await ensureWorkspaceInitialized();
 
-    const fileInfo = await stat(getWorkspaceMemoryFilePath());
-    assert.equal(fileInfo.isFile(), true);
-
-    const content = await readWorkspaceMemoryFile();
-    assert.match(content ?? "", /# MEMORY\.md/);
-    assert.match(content ?? "", /durable user-specific memory/);
-    assert.match(content ?? "", /workspace file tools/);
-  } finally {
-    clearWorkspaceRoot();
-  }
-});
-
-test("workspace initialization seeds COMPACT.md", async () => {
-  const workspace = await mkdtemp(path.join(tmpdir(), "malikraw-workspace-"));
-  setWorkspaceRoot(workspace);
-
-  try {
-    await ensureWorkspaceInitialized();
-
-    const fileInfo = await stat(getWorkspaceCompactFilePath());
-    assert.equal(fileInfo.isFile(), true);
-
-    const content = await readWorkspaceCompactFile();
-    assert.match(content ?? "", /# Conversation Compaction Guide/);
-    assert.match(content ?? "", /Never rewrite or summarize the system prompt/);
+    await assert.rejects(stat(path.join(workspace, "MEMORY.md")));
+    await assert.rejects(stat(path.join(workspace, "COMPACT.md")));
   } finally {
     clearWorkspaceRoot();
   }

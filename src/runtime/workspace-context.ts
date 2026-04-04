@@ -3,9 +3,7 @@ import path from "node:path";
 import { getMalikrawHomeDirectory } from "../core/config/config-store.js";
 import {
   readDefaultAgentTemplateFile,
-  readCompactTemplateFile,
   readDefaultIdentityTemplateFile,
-  readDefaultMemoryTemplateFile,
   readDefaultPersonalityTemplateFile,
 } from "./system-template-context.js";
 
@@ -43,14 +41,6 @@ export function getWorkspaceIdentityFilePath(): string {
   return path.join(getWorkspaceRoot(), "IDENTITY.md");
 }
 
-export function getWorkspaceMemoryFilePath(): string {
-  return path.join(getWorkspaceRoot(), "MEMORY.md");
-}
-
-export function getWorkspaceCompactFilePath(): string {
-  return path.join(getWorkspaceRoot(), "COMPACT.md");
-}
-
 export async function ensureWorkspaceInitialized(): Promise<void> {
   const workspaceRoot = getWorkspaceRoot();
   await mkdir(workspaceRoot, { recursive: true });
@@ -59,8 +49,6 @@ export async function ensureWorkspaceInitialized(): Promise<void> {
   await seedWorkspaceIdentityFile();
   await seedWorkspacePersonalityFile();
   await seedWorkspaceAgentFile();
-  await seedWorkspaceMemoryFile();
-  await seedWorkspaceCompactFile();
 }
 
 export async function readWorkspaceAgentFile(): Promise<string | undefined> {
@@ -73,14 +61,6 @@ export async function readWorkspacePersonalityFile(): Promise<string | undefined
 
 export async function readWorkspaceIdentityFile(): Promise<string | undefined> {
   return readOptionalWorkspaceFile(getWorkspaceIdentityFilePath());
-}
-
-export async function readWorkspaceMemoryFile(): Promise<string | undefined> {
-  return readOptionalWorkspaceFile(getWorkspaceMemoryFilePath());
-}
-
-export async function readWorkspaceCompactFile(): Promise<string | undefined> {
-  return readOptionalWorkspaceFile(getWorkspaceCompactFilePath());
 }
 
 async function readOptionalWorkspaceFile(filePath: string): Promise<string | undefined> {
@@ -123,24 +103,6 @@ async function seedWorkspaceAgentFile(): Promise<void> {
   }
 
   await writeFileIfMissing(getWorkspaceAgentFilePath(), content);
-}
-
-async function seedWorkspaceMemoryFile(): Promise<void> {
-  const content = await readDefaultMemoryTemplateFile();
-  if (!content) {
-    throw new Error("Default MEMORY.md template is empty.");
-  }
-
-  await writeFileIfMissing(getWorkspaceMemoryFilePath(), content);
-}
-
-async function seedWorkspaceCompactFile(): Promise<void> {
-  const content = await readCompactTemplateFile();
-  if (!content) {
-    throw new Error("Default COMPACT.md template is empty.");
-  }
-
-  await writeFileIfMissing(getWorkspaceCompactFilePath(), content);
 }
 
 async function writeFileIfMissing(filePath: string, content: string): Promise<void> {
