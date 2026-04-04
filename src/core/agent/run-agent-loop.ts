@@ -1,12 +1,32 @@
-import { buildPrompt, getVisibleToolNames } from "./build-prompt.js";
+import { collectQueryContext, finalizeQueryContext, getVisibleToolNames } from "./build-prompt.js";
+import { executeToolCalls } from "../tool-registry/tool-orchestrator.js";
 import type {
+  AgentLoopEvent,
   AgentLoopInput,
   AgentLoopResult,
   AgentMessage,
-  ToolAuthorizationResult,
 } from "./types.js";
 
 export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResult> {
+  const events: AgentLoopEvent[] = [];
+  const stream = runAgentLoopEvents(input);
+
+  while (true) {
+    const next = await stream.next();
+    if (next.done) {
+      return {
+        ...next.value,
+        events,
+      };
+    }
+
+    events.push(next.value);
+  }
+}
+
+export async function* runAgentLoopEvents(
+  input: AgentLoopInput,
+): AsyncGenerator<AgentLoopEvent, Omit<AgentLoopResult, "events">, void> {
   const routeResult = await input.skillRouter.route({
     userRequest: input.userRequest,
     availableSkillIds: input.skillRegistry.list().map((skill) => skill.name),
@@ -22,7 +42,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   const allToolNames = input.toolRegistry.toModelTools().map((tool) => tool.function.name);
   const visibleToolNames = getVisibleToolNames(selected.skills, allToolNames);
 
-  const prompt = buildPrompt({
+  const queryContext = collectQueryContext({
     globalPolicy: input.globalPolicy,
     identitySystemContent: input.identitySystemContent,
     personalitySystemContent: input.personalitySystemContent,
@@ -38,6 +58,14 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     userContext: input.userContext,
     systemContext: input.systemContext,
   });
+  const prompt = finalizeQueryContext(queryContext);
+
+  yield {
+    type: "prompt_ready",
+    queryContext,
+    prompt,
+    visibleToolNames,
+  };
 
   const messages: AgentMessage[] = [...prompt.messages];
   const toolResults = [];
@@ -70,14 +98,26 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
 
       reactiveCompactions += 1;
       messages.splice(0, messages.length, ...compactedMessages);
+      yield {
+        type: "reactive_compaction",
+        iteration,
+        messages: [...messages],
+      };
       continue;
     }
 
     if (modelResponse.type === "final") {
-      messages.push({
+      const assistantMessage: AgentMessage = {
         role: "assistant",
         content: modelResponse.outputText,
-      });
+      };
+      messages.push(assistantMessage);
+      yield {
+        type: "final_output",
+        iteration,
+        message: assistantMessage,
+        output: modelResponse.outputText,
+      };
 
       return {
         finalOutput: modelResponse.outputText,
@@ -89,70 +129,35 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     }
 
     if (modelResponse.assistantMessage) {
-      messages.push({
+      const assistantMessage: AgentMessage = {
         role: "assistant",
         content: modelResponse.assistantMessage,
-      });
+      };
+      messages.push(assistantMessage);
+      yield {
+        type: "assistant_message",
+        iteration,
+        message: assistantMessage,
+      };
     }
 
-    for (const toolCall of modelResponse.toolCalls) {
-      if (!visibleToolNames.includes(toolCall.name) || !input.toolRegistry.has(toolCall.name)) {
-        const deniedResult = {
-          toolName: toolCall.name,
-          traceId: `visibility_${Date.now()}_${toolCall.id}`,
-          startedAt: new Date().toISOString(),
-          finishedAt: new Date().toISOString(),
-          durationMs: 0,
-          ok: false as const,
-          error: {
-            type: "authorization_error" as const,
-            message: `Tool "${toolCall.name}" is not visible for the active skills.`,
-          },
-        };
-
-        toolResults.push(deniedResult);
-        messages.push({
-          role: "tool",
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          content: JSON.stringify(deniedResult),
-        });
-        continue;
-      }
-
-      const authorization = await authorizeTool(input, messages, prompt.activeSkillIds, toolCall.name, toolCall.input, selected.skills);
-      if (!authorization.ok) {
-        const deniedResult = {
-          toolName: toolCall.name,
-          traceId: `auth_${Date.now()}_${toolCall.id}`,
-          startedAt: new Date().toISOString(),
-          finishedAt: new Date().toISOString(),
-          durationMs: 0,
-          ok: false as const,
-          error: {
-            type: "authorization_error" as const,
-            message: authorization.reason,
-          },
-        };
-
-        toolResults.push(deniedResult);
-        messages.push({
-          role: "tool",
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          content: JSON.stringify(deniedResult),
-        });
-        continue;
-      }
-
-      const result = await input.toolRegistry.execute(toolCall.name, toolCall.input);
-      toolResults.push(result);
-      messages.push({
-        role: "tool",
-        toolCallId: toolCall.id,
-        toolName: toolCall.name,
-        content: JSON.stringify(result),
-      });
+    const executions = await executeToolCalls({
+      toolCalls: modelResponse.toolCalls,
+      visibleToolNames,
+      messages,
+      activeSkills: selected.skills,
+      toolRegistry: input.toolRegistry,
+      authorizeTool: input.authorizeTool,
+    });
+    for (const execution of executions) {
+      toolResults.push(execution.result);
+      messages.push(execution.message);
+      yield {
+        type: "tool_result",
+        iteration,
+        message: execution.message,
+        result: execution.result,
+      };
     }
   }
 }
@@ -172,26 +177,6 @@ async function tryReactiveCompact(
     messages: [...messages],
     error,
     iteration,
-  });
-}
-
-async function authorizeTool(
-  input: AgentLoopInput,
-  messages: AgentMessage[],
-  _activeSkillIds: string[],
-  toolName: string,
-  toolInput: unknown,
-  activeSkills: Parameters<NonNullable<AgentLoopInput["authorizeTool"]>>[0]["activeSkills"],
-): Promise<ToolAuthorizationResult> {
-  if (!input.authorizeTool) {
-    return { ok: true };
-  }
-
-  return input.authorizeTool({
-    toolName,
-    input: toolInput,
-    messages,
-    activeSkills,
   });
 }
 

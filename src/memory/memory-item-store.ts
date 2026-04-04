@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { readJsonFile, withFileLock, writeJsonFileAtomic } from "./file-store.js";
 import type {
   MemoryContext,
   MemoryItemStore,
@@ -60,23 +60,25 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
   ) {}
 
   async insert(context: MemoryContext, item: QueryMemoryItemCandidate): Promise<void> {
-    const records = await this.readAll();
-    const now = new Date().toISOString();
-    records.push({
-      id: randomUUID(),
-      userId: context.userId,
-      agentId: context.agentId,
-      scope: item.scope,
-      query: item.query,
-      summary: item.summary,
-      content: item.content,
-      importance: item.importance,
-      confidence: item.confidence,
-      source: item.source,
-      createdAt: now,
-      updatedAt: now,
+    await withFileLock(this.filePath, async () => {
+      const records = await this.readAll();
+      const now = new Date().toISOString();
+      records.push({
+        id: randomUUID(),
+        userId: context.userId,
+        agentId: context.agentId,
+        scope: item.scope,
+        query: item.query,
+        summary: item.summary,
+        content: item.content,
+        importance: item.importance,
+        confidence: item.confidence,
+        source: item.source,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await this.writeAll(records);
     });
-    await this.writeAll(records);
     console.log(
       `[memory:items:store] store=file user=${context.userId} agent=${context.agentId} session=${context.sessionId} query=${JSON.stringify(truncate(item.query, 160))}`,
     );
@@ -96,21 +98,11 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
   }
 
   private async readAll(): Promise<QueryMemoryItemRecord[]> {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as QueryMemoryItemRecord[];
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        return [];
-      }
-      throw error;
-    }
+    return readJsonFile(this.filePath, []);
   }
 
   private async writeAll(records: QueryMemoryItemRecord[]): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify(records, null, 2)}\n`, "utf8");
+    await writeJsonFileAtomic(this.filePath, records);
   }
 }
 

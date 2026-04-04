@@ -6,6 +6,11 @@ export type ToolExecutionContext = {
   now: () => Date;
 };
 
+export type ToolExecuteOptions = {
+  signal?: AbortSignal;
+  traceId?: string;
+};
+
 export type ToolSpec<
   TInputSchema extends Schema = Schema,
   TResult = unknown,

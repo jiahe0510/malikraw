@@ -5,8 +5,16 @@ import path from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type { StoredFeishuChannelConfig } from "../core/config/config-store.js";
-import type { ChannelDelivery, ChannelInboundMessage, ChannelMedia, ChannelStartContext, GatewayChannel } from "./channel.js";
+import type {
+  ChannelDelivery,
+  ChannelInboundMessage,
+  ChannelMedia,
+  ChannelStartContext,
+  GatewayChannel,
+  RuntimeEventDelivery,
+} from "./channel.js";
 import { getWorkspaceRoot, resolveWorkspacePath } from "../tools/_workspace.js";
+import { formatRuntimeEvent } from "./runtime-events.js";
 import {
   extractFeishuMessageText,
   type FeishuMention,
@@ -159,6 +167,34 @@ export class FeishuChannel implements GatewayChannel {
   stop(): void {
     this.wsClient.close({ force: true });
     console.log(`[channel:feishu] websocket closed id=${this.id}`);
+  }
+
+  async handleRuntimeEvent(delivery: RuntimeEventDelivery): Promise<void> {
+    if (delivery.event.type === "final_output" || delivery.event.type === "prompt_ready") {
+      return;
+    }
+
+    if (delivery.event.type === "assistant_message") {
+      return;
+    }
+
+    const formatted = formatRuntimeEvent(delivery.event);
+    if (!formatted) {
+      return;
+    }
+
+    try {
+      await this.sendMessage({
+        session: delivery.session,
+        content: formatted,
+        visibleToolNames: [],
+      });
+    } catch (error) {
+      console.warn(
+        `[channel:feishu] runtime event delivery failed id=${this.id} session=${delivery.session.sessionId} type=${delivery.event.type}`,
+        formatFeishuError(error),
+      );
+    }
   }
 
   async sendMessage(delivery: ChannelDelivery): Promise<void> {

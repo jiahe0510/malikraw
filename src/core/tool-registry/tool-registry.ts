@@ -1,20 +1,14 @@
-import { validateSchema, type ObjectSchema, type Schema } from "./schema.js";
+import { type ObjectSchema, type Schema } from "./schema.js";
+import { executeTool } from "./tool-executor.js";
 import { InMemoryTraceLog } from "./trace-log.js";
 import type {
   ModelToolDefinition,
-  ToolError,
+  ToolExecuteOptions,
   ToolExecutionContext,
-  ToolExecutionError,
-  ToolLookupError,
   ToolResultEnvelope,
   ToolSpec,
   TraceLog,
 } from "./types.js";
-
-type ExecuteOptions = {
-  signal?: AbortSignal;
-  traceId?: string;
-};
 
 type RegisteredTool = {
   name: string;
@@ -84,101 +78,15 @@ export class ToolRegistry {
   async execute<TResult = unknown>(
     toolName: string,
     rawInput: unknown,
-    options: ExecuteOptions = {},
+    options: ToolExecuteOptions = {},
   ): Promise<ToolResultEnvelope<TResult>> {
-    const startedAt = new Date();
-    const traceId = options.traceId ?? createTraceId();
-    const tool = this.tools.get(toolName);
-
-    if (!tool) {
-      return this.fail(toolName, traceId, startedAt, lookupError(toolName));
-    }
-
-    this.traceLog.record({
-      type: "tool_started",
+    return executeTool({
       toolName,
-      traceId,
-      at: startedAt.toISOString(),
-      input: rawInput,
+      rawInput,
+      tool: this.tools.get(toolName),
+      traceLog: this.traceLog,
+      options,
     });
-    console.log(
-      `[tool:start] name=${toolName} trace=${traceId} input=${formatForLog(rawInput)}`,
-    );
-
-    const validation = validateSchema(tool.inputSchema, rawInput);
-    if (!validation.ok) {
-      return this.fail(toolName, traceId, startedAt, {
-        type: "validation_error",
-        message: `Input validation failed for tool "${toolName}".`,
-        issues: validation.issues,
-      });
-    }
-
-    const context: ToolExecutionContext = {
-      signal: options.signal,
-      traceId,
-      now: () => new Date(),
-    };
-
-    try {
-      const data = await tool.execute(validation.value, context);
-      const finishedAt = new Date();
-      const durationMs = finishedAt.getTime() - startedAt.getTime();
-      this.traceLog.record({
-        type: "tool_succeeded",
-        toolName,
-        traceId,
-        at: finishedAt.toISOString(),
-        durationMs,
-        output: data,
-      });
-      console.log(
-        `[tool:success] name=${toolName} trace=${traceId} duration_ms=${durationMs} output=${formatForLog(data)}`,
-      );
-
-      return {
-        toolName,
-        traceId,
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        durationMs,
-        ok: true,
-        data: data as TResult,
-      };
-    } catch (error) {
-      return this.fail(toolName, traceId, startedAt, toExecutionError(toolName, error));
-    }
-  }
-
-  private fail(
-    toolName: string,
-    traceId: string,
-    startedAt: Date,
-    error: ToolError,
-  ): ToolResultEnvelope<never> {
-    const finishedAt = new Date();
-    const durationMs = finishedAt.getTime() - startedAt.getTime();
-    this.traceLog.record({
-      type: "tool_failed",
-      toolName,
-      traceId,
-      at: finishedAt.toISOString(),
-      durationMs,
-      error,
-    });
-    console.log(
-      `[tool:fail] name=${toolName} trace=${traceId} duration_ms=${durationMs} error=${formatForLog(error)}`,
-    );
-
-    return {
-      toolName,
-      traceId,
-      startedAt: startedAt.toISOString(),
-      finishedAt: finishedAt.toISOString(),
-      durationMs,
-      ok: false,
-      error,
-    };
   }
 
   private listVisible(toolNames?: readonly string[]): RegisteredTool[] {
@@ -189,41 +97,6 @@ export class ToolRegistry {
     const allowed = new Set(toolNames);
     return this.list().filter((tool) => allowed.has(tool.name));
   }
-}
-
-function lookupError(toolName: string): ToolLookupError {
-  return {
-    type: "tool_not_found",
-    message: `Tool "${toolName}" is not registered.`,
-  };
-}
-
-function toExecutionError(toolName: string, cause: unknown): ToolExecutionError {
-  const message = cause instanceof Error
-    ? cause.message
-    : `Tool "${toolName}" failed with a non-Error throw value.`;
-
-  return {
-    type: "execution_error",
-    message,
-    cause,
-  };
-}
-
-function createTraceId(): string {
-  return `trace_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function formatForLog(value: unknown): string {
-  try {
-    return truncate(JSON.stringify(value), 500);
-  } catch {
-    return truncate(String(value), 500);
-  }
-}
-
-function truncate(value: string, maxLength: number): string {
-  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }
 
 function schemaToJsonSchema(schema: Schema): Record<string, unknown> {

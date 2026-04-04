@@ -8,11 +8,12 @@ import {
   loadSkillsFromDirectory,
   registerBuiltinTools,
   runAgentLoop,
+  runAgentLoopEvents,
   ManualSkillRouter,
 } from "../index.js";
 import type { RuntimeConfig } from "../core/config/agent-config.js";
 import type { StoredFeishuChannelConfig } from "../core/config/config-store.js";
-import type { AgentMessage } from "../core/agent/types.js";
+import type { AgentLoopEvent, AgentMessage } from "../core/agent/types.js";
 import { createMemoryService } from "../memory/memory-service.js";
 import { runMemoryMigrations } from "../memory/migrate.js";
 import { compactContextIfNeeded, reactivelyCompactMessages } from "./context-compactor.js";
@@ -49,9 +50,76 @@ export type AgentRuntime = {
     media: ChannelMedia[];
     messageDispatches: MessageDispatch[];
   }>;
+  askEvents?(input: {
+    userRequest: string;
+    history?: AgentMessage[];
+    sessionId?: string;
+    userId?: string;
+    agentId?: string;
+    channelId?: string;
+    projectId?: string;
+  }): AsyncGenerator<AgentLoopEvent, {
+    output: string;
+    visibleToolNames: string[];
+    messages: AgentMessage[];
+    media: ChannelMedia[];
+    messageDispatches: MessageDispatch[];
+  }, void>;
+};
+
+type RuntimeDependencies = {
+  skillRegistry: SkillRegistry;
+  model: OpenAICompatibleModel;
+  memoryService: ReturnType<typeof createMemoryService>;
+};
+
+type RuntimeAskInput = Parameters<AgentRuntime["ask"]>[0];
+
+type RuntimePromptContent = {
+  identitySystemContent?: string;
+  personalitySystemContent?: string;
+  agentSystemContent?: string;
+  memorySystemContent?: string;
+  compactInstructionContent?: string;
+};
+
+type RuntimeTurnExecution = {
+  result: Awaited<ReturnType<typeof runAgentLoop>>;
+  compaction: Awaited<ReturnType<typeof compactContextIfNeeded>>;
+  memoryContext: {
+    sessionId: string;
+    userId: string;
+    agentId: string;
+    channelId?: string;
+    projectId?: string;
+  };
 };
 
 export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRuntime> {
+  const dependencies = await bootstrapRuntimeDependencies(config);
+  const askEvents: NonNullable<AgentRuntime["askEvents"]> = async function* (input) {
+    const execution = yield* executeRuntimeTurnEvents(config, dependencies, input);
+    await persistRuntimeTurn(dependencies.memoryService, input.userRequest, execution);
+    return buildRuntimeAskResponse(execution.result);
+  };
+  const ask: AgentRuntime["ask"] = async (input) => {
+    const stream = askEvents(input);
+    while (true) {
+      const next = await stream.next();
+      if (next.done) {
+        return next.value;
+      }
+    }
+  };
+
+  return {
+    workspaceRoot: getWorkspaceRoot(),
+    ask,
+    askEvents,
+  };
+}
+
+async function bootstrapRuntimeDependencies(config: RuntimeConfig): Promise<RuntimeDependencies> {
   setWorkspaceRoot(config.workspaceRoot);
   await ensureWorkspaceInitialized();
   if (config.memory?.enabled) {
@@ -64,106 +132,147 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
     skillRegistry.register(skill);
   }
 
-  const model = new OpenAICompatibleModel(config.model);
-  const memoryService = createMemoryService(config.memory, config.model);
+  return {
+    skillRegistry,
+    model: new OpenAICompatibleModel(config.model),
+    memoryService: createMemoryService(config.memory, config.model),
+  };
+}
+
+async function* executeRuntimeTurnEvents(
+  config: RuntimeConfig,
+  dependencies: RuntimeDependencies,
+  input: RuntimeAskInput,
+): AsyncGenerator<AgentLoopEvent, RuntimeTurnExecution, void> {
+  const promptContent = await loadRuntimePromptContent();
+  const memoryContext = resolveMemoryContext(input);
+  const toolRegistry = createRuntimeToolRegistry({
+    channels: config.channels,
+    channelId: input.channelId,
+    memoryEnabled: Boolean(config.memory?.enabled),
+    memoryService: dependencies.memoryService,
+    memoryContext,
+  });
+  const compaction = await compactContextIfNeeded({
+    model: dependencies.model,
+    modelConfig: config.model,
+    compactInstructionContent: promptContent.compactInstructionContent,
+    globalPolicy: config.globalPolicy,
+    identitySystemContent: promptContent.identitySystemContent,
+    personalitySystemContent: promptContent.personalitySystemContent,
+    agentSystemContent: promptContent.agentSystemContent,
+    memorySystemContent: promptContent.memorySystemContent,
+    history: input.history,
+    userRequest: input.userRequest,
+  });
+  const stream = runAgentLoopEvents({
+    model: dependencies.model,
+    toolRegistry,
+    skillRegistry: dependencies.skillRegistry,
+    skillRouter: new ManualSkillRouter(config.activeSkillIds),
+    globalPolicy: config.globalPolicy,
+    identitySystemContent: promptContent.identitySystemContent,
+    personalitySystemContent: promptContent.personalitySystemContent,
+    agentSystemContent: promptContent.agentSystemContent,
+    memorySystemContent: promptContent.memorySystemContent,
+    userRequest: input.userRequest,
+    history: compaction.history,
+    stateSummary: config.stateSummary,
+    memorySummary: config.memorySummary,
+    userContext: {
+      "Current Date": new Date().toISOString().slice(0, 10),
+    },
+    systemContext: {
+      Channel: input.channelId ?? "local",
+      Session: memoryContext.sessionId,
+      Project: memoryContext.projectId ?? getWorkspaceRoot(),
+    },
+    maxIterations: config.maxIterations,
+    debugModelMessages: config.debugModelMessages,
+    reactiveCompact: ({ messages }) => {
+      const compacted = reactivelyCompactMessages({
+        modelConfig: config.model,
+        messages,
+      });
+      return compacted.triggered ? compacted.messages : undefined;
+    },
+  });
+  let result: Awaited<ReturnType<typeof runAgentLoop>> | undefined;
+  while (true) {
+    const next = await stream.next();
+    if (next.done) {
+      result = {
+        ...next.value,
+        events: [],
+      };
+      break;
+    }
+    yield next.value;
+  }
 
   return {
-    workspaceRoot: getWorkspaceRoot(),
-    ask: async ({ userRequest, history, sessionId, userId, agentId, channelId, projectId }) => {
-      const identitySystemContent = await readWorkspaceIdentityFile();
-      const personalitySystemContent = await readWorkspacePersonalityFile()
-        ?? await readBundledPersonalityFile();
-      const agentSystemContent = await readWorkspaceAgentFile();
-      const memorySystemContent = await readWorkspaceMemoryFile();
-      const compactInstructionContent = await readWorkspaceCompactFile();
-      const resolvedAgentId = agentId ?? "default";
-      const resolvedUserId = userId ?? sessionId ?? "anonymous";
-      const resolvedSessionId = sessionId ?? "default";
-      const resolvedProjectId = projectId ?? getWorkspaceRoot();
-      const memoryContext = {
-        sessionId: resolvedSessionId,
-        userId: resolvedUserId,
-        agentId: resolvedAgentId,
-        channelId,
-        projectId: resolvedProjectId,
-      };
-      const toolRegistry = createRuntimeToolRegistry({
-        channels: config.channels,
-        channelId,
-        memoryEnabled: Boolean(config.memory?.enabled),
-        memoryService,
-        memoryContext,
-      });
-      const compaction = await compactContextIfNeeded({
-        model,
-        modelConfig: config.model,
-        compactInstructionContent,
-        globalPolicy: config.globalPolicy,
-        identitySystemContent,
-        personalitySystemContent,
-        agentSystemContent,
-        memorySystemContent,
-        history,
-        userRequest,
-      });
-      const result = await runAgentLoop({
-        model,
-        toolRegistry,
-        skillRegistry,
-        skillRouter: new ManualSkillRouter(config.activeSkillIds),
-        globalPolicy: config.globalPolicy,
-        identitySystemContent,
-        personalitySystemContent,
-        agentSystemContent,
-        memorySystemContent,
-        userRequest,
-        history: compaction.history,
-        stateSummary: config.stateSummary,
-        memorySummary: config.memorySummary,
-        userContext: {
-          "Current Date": new Date().toISOString().slice(0, 10),
-        },
-        systemContext: {
-          Channel: channelId ?? "local",
-          Session: resolvedSessionId,
-          Project: resolvedProjectId,
-        },
-        maxIterations: config.maxIterations,
-        debugModelMessages: config.debugModelMessages,
-        reactiveCompact: ({ messages }) => {
-          const compacted = reactivelyCompactMessages({
-            modelConfig: config.model,
-            messages,
-          });
-          return compacted.triggered ? compacted.messages : undefined;
-        },
-      });
+    result: result!,
+    compaction,
+    memoryContext,
+  };
+}
 
-      await memoryService.write({
-        context: memoryContext,
-        userMessage: userRequest,
-        assistantResponse: result.finalOutput,
-        toolResults: result.toolResults,
-        sessionMessages: result.messages.filter((message) =>
-          message.role === "user" || message.role === "assistant"
-        ),
-        compaction: compaction.summary
-          ? {
-            summary: compaction.summary,
-            messagesCompacted: compaction.messagesCompacted,
-            estimatedTokens: compaction.estimatedTokens.history,
-          }
-          : undefined,
-      });
+async function loadRuntimePromptContent(): Promise<RuntimePromptContent> {
+  return {
+    identitySystemContent: await readWorkspaceIdentityFile(),
+    personalitySystemContent: await readWorkspacePersonalityFile()
+      ?? await readBundledPersonalityFile(),
+    agentSystemContent: await readWorkspaceAgentFile(),
+    memorySystemContent: await readWorkspaceMemoryFile(),
+    compactInstructionContent: await readWorkspaceCompactFile(),
+  };
+}
 
-      return {
-        output: result.finalOutput,
-        visibleToolNames: result.visibleToolNames,
-        messages: result.messages,
-        media: extractMedia(result.toolResults),
-        messageDispatches: extractMessageDispatches(result.toolResults),
-      };
-    },
+function resolveMemoryContext(input: RuntimeAskInput): RuntimeTurnExecution["memoryContext"] {
+  const resolvedAgentId = input.agentId ?? "default";
+  const resolvedUserId = input.userId ?? input.sessionId ?? "anonymous";
+  const resolvedSessionId = input.sessionId ?? "default";
+  const resolvedProjectId = input.projectId ?? getWorkspaceRoot();
+
+  return {
+    sessionId: resolvedSessionId,
+    userId: resolvedUserId,
+    agentId: resolvedAgentId,
+    channelId: input.channelId,
+    projectId: resolvedProjectId,
+  };
+}
+
+async function persistRuntimeTurn(
+  memoryService: ReturnType<typeof createMemoryService>,
+  userRequest: string,
+  execution: RuntimeTurnExecution,
+): Promise<void> {
+  await memoryService.write({
+    context: execution.memoryContext,
+    userMessage: userRequest,
+    assistantResponse: execution.result.finalOutput,
+    toolResults: execution.result.toolResults,
+    sessionMessages: execution.result.messages.filter((message) =>
+      message.role === "user" || message.role === "assistant"
+    ),
+    compaction: execution.compaction.summary
+      ? {
+        summary: execution.compaction.summary,
+        messagesCompacted: execution.compaction.messagesCompacted,
+        estimatedTokens: execution.compaction.estimatedTokens.history,
+      }
+      : undefined,
+  });
+}
+
+function buildRuntimeAskResponse(result: Awaited<ReturnType<typeof runAgentLoop>>): Awaited<ReturnType<AgentRuntime["ask"]>> {
+  return {
+    output: result.finalOutput,
+    visibleToolNames: result.visibleToolNames,
+    messages: result.messages,
+    media: extractMedia(result.toolResults),
+    messageDispatches: extractMessageDispatches(result.toolResults),
   };
 }
 

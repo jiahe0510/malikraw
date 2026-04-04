@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { compileRelevantMemoryBlock } from "../memory/memory-compiler.js";
 import { HeuristicEpisodeExtractor } from "../memory/extractors/episode-extractor.js";
 import { extractSemanticHeuristically } from "../memory/extractors/semantic-extractor.js";
-import { InMemoryMemoryItemStore } from "../memory/memory-item-store.js";
+import { FileBackedMemoryItemStore, InMemoryMemoryItemStore } from "../memory/memory-item-store.js";
 import { MemoryRetriever } from "../memory/memory-retriever.js";
 import { MemoryWriter } from "../memory/memory-writer.js";
 import { InMemorySessionStateStore } from "../memory/session-store.js";
@@ -343,4 +346,23 @@ test("memory writer stores one tool chain per user query", async () => {
   assert.equal(records[0]?.query, "查一下最近的国际新闻");
   assert.equal(records[0]?.toolChain.length, 2);
   assert.deepEqual(records[0]?.toolChain.map((step) => step.toolName), ["web_search", "open_page"]);
+});
+
+test("file-backed memory item store quarantines corrupt JSON and recovers with an empty dataset", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "malikraw-memory-store-"));
+  const filePath = path.join(directory, "memory-items.json");
+  await writeFile(filePath, "{not valid json", "utf8");
+
+  const store = new FileBackedMemoryItemStore(filePath);
+  const context = {
+    sessionId: "s1",
+    userId: "u1",
+    agentId: "a1",
+  };
+
+  const results = await store.searchRelevant(context, "hello", { limit: 5 });
+  assert.deepEqual(results, []);
+
+  const entries = await readdir(directory);
+  assert.ok(entries.some((entry) => entry.startsWith("memory-items.json.corrupt-")));
 });

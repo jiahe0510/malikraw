@@ -273,6 +273,88 @@ test("FeishuChannel adds and removes a processing reaction around handled messag
   assert.deepEqual(reactions, ["create", "delete"]);
 });
 
+test("FeishuChannel emits tool-result runtime events as progress replies", async () => {
+  const deliveries: Array<{ sessionId: string; content: string }> = [];
+  const channel = Object.assign(Object.create(FeishuChannel.prototype), {
+    id: "feishu",
+    config: {
+      id: "feishu",
+      type: "feishu",
+      appId: "app-id",
+      appSecret: "app-secret",
+    },
+    sendMessage: async (delivery: { session: { sessionId: string }; content: string }) => {
+      deliveries.push({
+        sessionId: delivery.session.sessionId,
+        content: delivery.content,
+      });
+    },
+  }) as FeishuChannel;
+
+  await channel.handleRuntimeEvent({
+    session: {
+      channelId: "feishu",
+      sessionId: "thread-1",
+    },
+    event: {
+      type: "tool_result",
+      iteration: 0,
+      message: {
+        role: "tool",
+        toolName: "read_file",
+        content: "{\"ok\":true}",
+      },
+      result: {
+        toolName: "read_file",
+        traceId: "trace-1",
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: 1,
+        ok: true,
+        data: { path: "README.md" },
+      },
+    },
+  });
+
+  assert.deepEqual(deliveries, [{
+    sessionId: "thread-1",
+    content: "Tool read_file finished",
+  }]);
+});
+
+test("FeishuChannel ignores assistant-message runtime events to avoid noisy progress spam", async () => {
+  let called = false;
+  const channel = Object.assign(Object.create(FeishuChannel.prototype), {
+    id: "feishu",
+    config: {
+      id: "feishu",
+      type: "feishu",
+      appId: "app-id",
+      appSecret: "app-secret",
+    },
+    sendMessage: async () => {
+      called = true;
+    },
+  }) as FeishuChannel;
+
+  await channel.handleRuntimeEvent({
+    session: {
+      channelId: "feishu",
+      sessionId: "thread-1",
+    },
+    event: {
+      type: "assistant_message",
+      iteration: 0,
+      message: {
+        role: "assistant",
+        content: "I am thinking.",
+      },
+    },
+  });
+
+  assert.equal(called, false);
+});
+
 test("rememberMessageId deduplicates repeated Feishu message ids and expires old entries", () => {
   const seen = new Map<string, number>();
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { readJsonFile, withFileLock, writeJsonFileAtomic } from "./file-store.js";
 import type { MemoryContext, ToolChainMemoryRecord, ToolChainMemoryStore, ToolChainStep } from "./types.js";
 import { getMemoryStoreDirectory } from "./session-store.js";
 
@@ -64,21 +64,23 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
       toolChain: ToolChainStep[];
     },
   ): Promise<void> {
-    const records = await this.readAll();
-    const now = new Date().toISOString();
-    records.push({
-      id: randomUUID(),
-      userId: context.userId,
-      agentId: context.agentId,
-      sessionId: context.sessionId,
-      projectId: context.projectId,
-      query: input.query,
-      assistantResponse: input.assistantResponse,
-      toolChain: input.toolChain,
-      createdAt: now,
-      updatedAt: now,
+    await withFileLock(this.filePath, async () => {
+      const records = await this.readAll();
+      const now = new Date().toISOString();
+      records.push({
+        id: randomUUID(),
+        userId: context.userId,
+        agentId: context.agentId,
+        sessionId: context.sessionId,
+        projectId: context.projectId,
+        query: input.query,
+        assistantResponse: input.assistantResponse,
+        toolChain: input.toolChain,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await this.writeAll(records);
     });
-    await this.writeAll(records);
     console.log(
       `[memory:tool-chain:store] store=file user=${context.userId} agent=${context.agentId} session=${context.sessionId} steps=${input.toolChain.length} query=${JSON.stringify(truncate(input.query, 160))}`,
     );
@@ -98,21 +100,11 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
   }
 
   private async readAll(): Promise<ToolChainMemoryRecord[]> {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as ToolChainMemoryRecord[];
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        return [];
-      }
-      throw error;
-    }
+    return readJsonFile(this.filePath, []);
   }
 
   private async writeAll(records: ToolChainMemoryRecord[]): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify(records, null, 2)}\n`, "utf8");
+    await writeJsonFileAtomic(this.filePath, records);
   }
 }
 

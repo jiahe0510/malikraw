@@ -46,7 +46,7 @@ export class Gateway {
       mediaCount: message.media?.length ?? 0,
     });
 
-    const result = await runtime.ask({
+    const runtimeInput = {
       userRequest,
       history,
       sessionId: message.session.sessionId,
@@ -54,7 +54,10 @@ export class Gateway {
       agentId: message.session.agentId,
       channelId: message.session.channelId,
       projectId: message.session.projectId ?? message.session.metadata?.projectId,
-    });
+    };
+    const result = runtime.askEvents
+      ? await this.consumeRuntimeEvents(channel, message, runtime.askEvents(runtimeInput))
+      : await runtime.ask(runtimeInput);
 
     const sessionMessages = filterSessionMessages(result.messages);
     await this.sessionStore.write(message.session, sessionMessages);
@@ -86,6 +89,27 @@ export class Gateway {
       media: result.media,
       messageDispatches: result.messageDispatches,
     };
+  }
+
+  private async consumeRuntimeEvents(
+    channel: GatewayChannel,
+    message: ChannelInboundMessage,
+    stream: NonNullable<AgentRuntime["askEvents"]> extends (...args: never[]) => infer TResult ? TResult : never,
+  ): Promise<Awaited<ReturnType<AgentRuntime["ask"]>>> {
+    while (true) {
+      const next = await stream.next();
+      if (next.done) {
+        return next.value;
+      }
+
+      console.log(
+        `[gateway:event] agent=${message.session.agentId ?? "default"} channel=${message.session.channelId} session=${message.session.sessionId} type=${next.value.type}`,
+      );
+      await channel.handleRuntimeEvent?.({
+        session: message.session,
+        event: next.value,
+      });
+    }
   }
 
   private resolveRuntime(agentId?: string): AgentRuntime {

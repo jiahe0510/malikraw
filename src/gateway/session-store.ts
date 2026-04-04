@@ -1,8 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getMalikrawHomeDirectory } from "../core/config/config-store.js";
 import type { AgentMessage } from "../core/agent/types.js";
+import { readJsonFile, withFileLock, writeJsonFileAtomic } from "../memory/file-store.js";
 import type { ChannelSession } from "./channel.js";
 
 const SUMMARY_PREFIX = "[session_summary]";
@@ -47,25 +47,16 @@ export class FileBackedSessionStore implements SessionStore {
   ) {}
 
   async read(session: ChannelSession): Promise<AgentMessage[]> {
-    try {
-      const raw = await readFile(this.getSessionFilePath(session), "utf8");
-      const parsed = JSON.parse(raw) as { messages?: AgentMessage[] };
-      return Array.isArray(parsed.messages) ? parsed.messages : [];
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        return [];
-      }
-
-      throw error;
-    }
+    const parsed = await readJsonFile<{ messages?: AgentMessage[] }>(this.getSessionFilePath(session), {});
+    return Array.isArray(parsed.messages) ? parsed.messages : [];
   }
 
   async write(session: ChannelSession, messages: AgentMessage[]): Promise<void> {
     const compacted = compactSessionMessages(messages, this.options);
     const filePath = this.getSessionFilePath(session);
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify({ messages: compacted }, null, 2)}\n`, "utf8");
+    await withFileLock(filePath, async () => {
+      await writeJsonFileAtomic(filePath, { messages: compacted });
+    });
   }
 
   private getSessionFilePath(session: ChannelSession): string {
@@ -95,12 +86,12 @@ export function compactSessionMessages(
   const maxHistoryChars = options.maxHistoryChars ?? DEFAULT_MAX_HISTORY_CHARS;
   const estimatedChars = estimateHistoryChars(messages);
   if (messages.length <= maxRecentMessages && estimatedChars <= maxHistoryChars) {
-    return stripToolMessages(messages);
+    return [...messages];
   }
 
   const splitIndex = findRecentSplitIndex(messages, maxRecentMessages);
   const shouldCompactEntireHistory = splitIndex === 0 && estimatedChars > maxHistoryChars;
-  const recentMessages = shouldCompactEntireHistory ? [] : stripToolMessages(messages.slice(splitIndex));
+  const recentMessages = shouldCompactEntireHistory ? [] : messages.slice(splitIndex);
   const olderMessages = shouldCompactEntireHistory ? messages : messages.slice(0, splitIndex);
   const summaryMessage = buildSummaryMessage(olderMessages, maxSummaryChars);
   if (!summaryMessage) {
@@ -125,6 +116,11 @@ function buildSummaryMessage(
 
     if (message.role === "user" || message.role === "assistant") {
       lines.push(renderSummaryLine(message));
+      continue;
+    }
+
+    if (message.role === "tool") {
+      lines.push(renderToolSummaryLine(message));
     }
   }
 
@@ -146,6 +142,10 @@ function renderSummaryLine(message: AgentMessage): string {
   return `${message.role}: ${truncate(message.content, 240)}`;
 }
 
+function renderToolSummaryLine(message: AgentMessage): string {
+  return `tool ${message.toolName ?? "unknown"}: ${truncate(summarizeToolContent(message.content), 120)}`;
+}
+
 function truncate(value: string, maxLength: number): string {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }
@@ -161,12 +161,24 @@ function findRecentSplitIndex(messages: AgentMessage[], maxRecentMessages: numbe
   return fallbackIndex;
 }
 
-function stripToolMessages(messages: AgentMessage[]): AgentMessage[] {
-  return messages.filter((message) => message.role === "user" || message.role === "assistant");
-}
-
 function estimateHistoryChars(messages: AgentMessage[]): number {
   return messages.reduce((total, message) => total + message.content.length, 0);
+}
+
+function summarizeToolContent(content: string): string {
+  try {
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    if (typeof parsed.ok === "boolean") {
+      return parsed.ok ? "ok" : "error";
+    }
+    if (parsed && typeof parsed === "object") {
+      return "recorded result";
+    }
+  } catch {
+    // fall back to plain text truncation
+  }
+
+  return content;
 }
 
 function encodeSessionKey(sessionKey: string): string {

@@ -27,6 +27,20 @@ export type AgentPromptInput = {
   relevantMemoryBlock?: string;
 };
 
+export type QueryContext = {
+  instructionMessages: Array<{
+    role: PromptRole;
+    content: string;
+  }>;
+  userContext: Record<string, string | undefined>;
+  systemContext: Record<string, string | undefined>;
+  memorySystemContent?: string;
+  relevantMemoryBlock?: string;
+  history: AgentMessage[];
+  userRequest: string;
+  activeSkillIds: string[];
+};
+
 export type BuiltPrompt = {
   messages: AgentMessage[];
   activeSkillIds: string[];
@@ -120,10 +134,41 @@ export type AgentLoopInput = {
   reactiveCompact?: ReactiveCompactionPolicy;
 };
 
+export type AgentLoopEvent =
+  | {
+      type: "prompt_ready";
+      queryContext: QueryContext;
+      prompt: BuiltPrompt;
+      visibleToolNames: string[];
+    }
+  | {
+      type: "assistant_message";
+      iteration: number;
+      message: AgentMessage;
+    }
+  | {
+      type: "tool_result";
+      iteration: number;
+      message: AgentMessage;
+      result: ToolResultEnvelope;
+    }
+  | {
+      type: "reactive_compaction";
+      iteration: number;
+      messages: AgentMessage[];
+    }
+  | {
+      type: "final_output";
+      iteration: number;
+      message: AgentMessage;
+      output: string;
+    };
+
 export type AgentLoopResult = {
   finalOutput: string;
   activeSkillIds: string[];
   messages: AgentMessage[];
   toolResults: ToolResultEnvelope[];
   visibleToolNames: string[];
+  events: AgentLoopEvent[];
 };

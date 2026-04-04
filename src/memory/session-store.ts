@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getMalikrawHomeDirectory } from "../core/config/config-store.js";
+import { readJsonFile, withFileLock, writeJsonFileAtomic } from "./file-store.js";
 import type { MemoryContext, SessionStateRecord, SessionStateStore } from "./types.js";
 
 export class InMemorySessionStateStore implements SessionStateStore {
@@ -27,27 +27,19 @@ export class FileBackedSessionStateStore implements SessionStateStore {
   }
 
   async write(record: SessionStateRecord): Promise<void> {
-    const records = await this.readAll();
-    records[buildSessionStateKey(record)] = record;
-    await this.writeAll(records);
+    await withFileLock(this.filePath, async () => {
+      const records = await this.readAll();
+      records[buildSessionStateKey(record)] = record;
+      await this.writeAll(records);
+    });
   }
 
   private async readAll(): Promise<Record<string, SessionStateRecord>> {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as Record<string, SessionStateRecord>;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        return {};
-      }
-      throw error;
-    }
+    return readJsonFile(this.filePath, {});
   }
 
   private async writeAll(records: Record<string, SessionStateRecord>): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify(records, null, 2)}\n`, "utf8");
+    await writeJsonFileAtomic(this.filePath, records);
   }
 }
 

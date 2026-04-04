@@ -1,3 +1,5 @@
+import type { AgentLoopEvent } from "../core/agent/types.js";
+
 export type ChannelSession = {
   agentId?: string;
   userId?: string;
@@ -33,6 +35,11 @@ export type MessageDispatch = {
   media?: ChannelMedia[];
 };
 
+export type RuntimeEventDelivery = {
+  session: ChannelSession;
+  event: AgentLoopEvent;
+};
+
 export type ChannelStartContext = {
   handleMessage(message: ChannelInboundMessage): Promise<unknown>;
 };
@@ -41,5 +48,6 @@ export interface GatewayChannel {
   id: string;
   start?(context: ChannelStartContext): Promise<void> | void;
   stop?(): Promise<void> | void;
+  handleRuntimeEvent?(delivery: RuntimeEventDelivery): Promise<void> | void;
   sendMessage(delivery: ChannelDelivery): Promise<void> | void;
 }

@@ -11,11 +11,14 @@ export type {
   ValidationResult,
 } from "./schema.js";
 export { InMemoryTraceLog } from "./trace-log.js";
+export { executeTool } from "./tool-executor.js";
+export { executeToolCalls } from "./tool-orchestrator.js";
 export { ToolRegistry } from "./tool-registry.js";
 export type {
   ModelToolDefinition,
   ToolError,
   ToolAuthorizationError,
+  ToolExecuteOptions,
   ToolExecutionContext,
   ToolExecutionError,
   ToolLookupError,

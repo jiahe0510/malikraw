@@ -1,6 +1,7 @@
-export { buildPrompt, getVisibleToolNames } from "./build-prompt.js";
-export { runAgentLoop } from "./run-agent-loop.js";
+export { buildPrompt, collectQueryContext, finalizeQueryContext, getVisibleToolNames } from "./build-prompt.js";
+export { runAgentLoop, runAgentLoopEvents } from "./run-agent-loop.js";
 export type {
+  AgentLoopEvent,
   AgentLoopInput,
   AgentLoopResult,
   AgentMessage,
@@ -9,6 +10,7 @@ export type {
   AgentPromptInput,
   BuiltPrompt,
   MessageRole,
+  QueryContext,
   ModelToolCall,
   ModelTurnResponse,
   ToolAuthorizationContext,

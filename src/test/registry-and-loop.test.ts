@@ -6,10 +6,13 @@ import {
   SkillRegistry,
   ToolRegistry,
   buildPrompt,
+  collectQueryContext,
   defineTool,
+  finalizeQueryContext,
   getVisibleToolNames,
   parseSkillMarkdown,
   runAgentLoop,
+  runAgentLoopEvents,
   s,
   type AgentMessage,
   type AgentModel,
@@ -104,6 +107,83 @@ read before edit`));
   assert.match(prompt.messages[5]?.content ?? "", /Active Skills/);
   assert.equal(prompt.messages[6]?.role, "user");
   assert.match(prompt.messages[6]?.content ?? "", /<system-reminder>/);
+});
+
+test("collectQueryContext separates instruction, user context, and system context", () => {
+  const skillRegistry = new SkillRegistry();
+  skillRegistry.register(parseSkillMarkdown(`---
+name: workspace_operator
+description: workspace flow
+promptRole: developer
+allowedTools: read_file
+---
+
+read before edit`));
+  const selected = skillRegistry.select(["workspace_operator"]);
+  if (!selected.ok) {
+    throw new Error(selected.error.message);
+  }
+
+  const context = collectQueryContext({
+    globalPolicy: "global policy",
+    identitySystemContent: "# Identity\n\nYou are Malikraw.",
+    personalitySystemContent: "# Personality\n\nBe direct.",
+    agentSystemContent: "# Agent\n\nInspect files.",
+    memorySystemContent: "# Memory\n\nUser prefers concise replies.",
+    userContext: {
+      "Current Date": "2026-04-04",
+    },
+    systemContext: {
+      Channel: "feishu",
+      Session: "s1",
+    },
+    userRequest: "update a file",
+    activeSkills: selected.skills,
+    toolSummary: "- read_file: read file",
+    stateSummary: "sev-2",
+    memorySummary: "recent deploy",
+    relevantMemoryBlock: "[Relevant Memory]\n- concise replies",
+    history: [{ role: "user", content: "earlier" }],
+  });
+
+  assert.equal(context.instructionMessages[0]?.role, "system");
+  assert.equal(context.instructionMessages[0]?.content, "global policy");
+  assert.equal(context.userContext["Current Date"], "2026-04-04");
+  assert.equal(context.systemContext.Channel, "feishu");
+  assert.equal(context.memorySystemContent, "# Memory\n\nUser prefers concise replies.");
+  assert.equal(context.relevantMemoryBlock, "[Relevant Memory]\n- concise replies");
+  assert.equal(context.history[0]?.content, "earlier");
+  assert.deepEqual(context.activeSkillIds, ["workspace_operator"]);
+});
+
+test("finalizeQueryContext appends system context and user reminder without flattening the context object", () => {
+  const prompt = finalizeQueryContext({
+    instructionMessages: [
+      { role: "system", content: "global policy" },
+      { role: "developer", content: "Runtime Context\n- Visible tools:\n  - read_file: read file" },
+    ],
+    userContext: {
+      "Current Date": "2026-04-04",
+    },
+    systemContext: {
+      Channel: "feishu",
+    },
+    memorySystemContent: "# Memory\n\nUser prefers concise replies.",
+    relevantMemoryBlock: "[Relevant Memory]\n- concise replies",
+    history: [{ role: "user", content: "earlier" }],
+    userRequest: "latest",
+    activeSkillIds: ["workspace_operator"],
+  });
+
+  assert.equal(prompt.messages[0]?.role, "system");
+  assert.equal(prompt.messages[1]?.role, "developer");
+  assert.match(prompt.messages[1]?.content ?? "", /System context:/);
+  assert.match(prompt.messages[1]?.content ?? "", /Channel: feishu/);
+  assert.equal(prompt.messages[2]?.role, "user");
+  assert.match(prompt.messages[2]?.content ?? "", /<system-reminder>/);
+  assert.match(prompt.messages[2]?.content ?? "", /Workspace MEMORY\.md/);
+  assert.equal(prompt.messages[3]?.content, "earlier");
+  assert.equal(prompt.messages[4]?.content, "latest");
 });
 
 test("buildPrompt omits retrieved memory section when none is injected", () => {
@@ -231,6 +311,10 @@ read before edit`));
   assert.equal(result.toolResults.length, 1);
   assert.deepEqual(result.visibleToolNames, ["read_file"]);
   assert.match(result.finalOutput, /read_file/);
+  assert.deepEqual(
+    result.events.map((event) => event.type),
+    ["prompt_ready", "tool_result", "final_output"],
+  );
 });
 
 test("runAgentLoop exposes non-skill tools to the model by default", async () => {
@@ -333,4 +417,82 @@ test("runAgentLoop retries after reactive compaction on context length errors", 
 
   assert.equal(model.calls, 2);
   assert.equal(result.finalOutput, "done after compact");
+  assert.deepEqual(
+    result.events.map((event) => event.type),
+    ["prompt_ready", "reactive_compaction", "final_output"],
+  );
+});
+
+test("runAgentLoopEvents yields prompt, assistant, tool, and final events in order", async () => {
+  const toolRegistry = new ToolRegistry();
+  toolRegistry.register(defineTool({
+    name: "lookup_status",
+    description: "look up service status",
+    inputSchema: s.object(
+      { service: s.string({ minLength: 1 }) },
+      { required: ["service"] },
+    ),
+    execute: ({ service }) => ({ service, status: "healthy" }),
+  }));
+
+  class EventedModel implements AgentModel {
+    private turn = 0;
+
+    generate(input: { messages: AgentMessage[] }): ModelTurnResponse {
+      this.turn += 1;
+      if (this.turn === 1) {
+        return {
+          type: "tool_calls",
+          assistantMessage: "Checking the service first.",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "lookup_status",
+              input: { service: "api" },
+            },
+          ],
+        };
+      }
+
+      const toolMessage = input.messages.find((message) => message.role === "tool");
+      return {
+        type: "final",
+        outputText: `done with ${toolMessage?.toolName ?? "none"}`,
+      };
+    }
+  }
+
+  const stream = runAgentLoopEvents({
+    model: new EventedModel(),
+    toolRegistry,
+    skillRegistry: new SkillRegistry(),
+    skillRouter: new ManualSkillRouter([]),
+    globalPolicy: "global policy",
+    userRequest: "check api status",
+  });
+
+  const events = [];
+  while (true) {
+    const next = await stream.next();
+    if (next.done) {
+      assert.equal(next.value.finalOutput, "done with lookup_status");
+      assert.equal(next.value.toolResults.length, 1);
+      break;
+    }
+
+    events.push(next.value);
+  }
+
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["prompt_ready", "assistant_message", "tool_result", "final_output"],
+  );
+  assert.equal(events[1]?.type, "assistant_message");
+  if (events[1]?.type === "assistant_message") {
+    assert.equal(events[1].message.content, "Checking the service first.");
+  }
+  assert.equal(events[2]?.type, "tool_result");
+  if (events[2]?.type === "tool_result") {
+    assert.equal(events[2].message.toolName, "lookup_status");
+  }
 });

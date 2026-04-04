@@ -4,6 +4,7 @@ export type {
   ChannelInboundMessage,
   ChannelSession,
   MessageDispatch,
+  RuntimeEventDelivery,
   ChannelStartContext,
   GatewayChannel,
 } from "../channels/channel.js";

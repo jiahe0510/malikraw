@@ -203,6 +203,78 @@ test("gateway passes structured media through to channels", async () => {
   ]);
 });
 
+test("gateway forwards runtime events to channels that opt in", async () => {
+  const eventTypes: string[] = [];
+  const deliveries: ChannelDelivery[] = [];
+
+  const runtime: AgentRuntime = {
+    workspaceRoot: "/tmp/workspace",
+    ask: async () => {
+      throw new Error("ask should not be used when askEvents is available");
+    },
+    askEvents: async function* ({ userRequest, history }) {
+      yield {
+        type: "prompt_ready",
+        queryContext: {
+          instructionMessages: [],
+          userContext: {},
+          systemContext: {},
+          history: history ?? [],
+          userRequest,
+          activeSkillIds: [],
+        },
+        prompt: {
+          messages: history ?? [],
+          activeSkillIds: [],
+        },
+        visibleToolNames: ["read_file"],
+      };
+      yield {
+        type: "assistant_message",
+        iteration: 0,
+        message: { role: "assistant", content: "working" },
+      };
+      yield {
+        type: "final_output",
+        iteration: 0,
+        message: { role: "assistant", content: "done" },
+        output: "done",
+      };
+
+      return {
+        output: "done",
+        visibleToolNames: ["read_file"],
+        messages: [
+          { role: "user", content: userRequest },
+          { role: "assistant", content: "done" },
+        ],
+        media: [],
+        messageDispatches: [],
+      };
+    },
+  };
+
+  const gateway = new Gateway(runtime);
+  gateway.registerChannel({
+    id: "tui",
+    handleRuntimeEvent: ({ event }) => {
+      eventTypes.push(event.type);
+    },
+    sendMessage: (delivery) => {
+      deliveries.push(delivery);
+    },
+  });
+
+  await gateway.handleMessage({
+    session: { channelId: "tui", sessionId: "session-1" },
+    content: "hello",
+  });
+
+  assert.deepEqual(eventTypes, ["prompt_ready", "assistant_message", "final_output"]);
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0]?.content, "done");
+});
+
 test("gateway appends inbound attachment paths to the runtime user request", async () => {
   const runtimeCalls: { userRequest: string }[] = [];
 
@@ -333,7 +405,7 @@ test("compactSessionMessages keeps recent history aligned to a user message boun
   );
 });
 
-test("compactSessionMessages removes tool messages from both summary and recent history", () => {
+test("compactSessionMessages keeps recent tool messages and summarizes older tool calls lightly", () => {
   const messages: AgentMessage[] = [
     { role: "user", content: "u1" },
     { role: "assistant", content: "a1" },
@@ -348,7 +420,7 @@ test("compactSessionMessages removes tool messages from both summary and recent 
   });
 
   assert.equal(compacted[0]?.role, "user");
-  assert.doesNotMatch(compacted[0]?.content ?? "", /tool read_file/);
+  assert.match(compacted[0]?.content ?? "", /tool read_file: recorded result/);
   assert.deepEqual(
     compacted.slice(1).map((message) => `${message.role}:${message.content}`),
     ["user:u2", "assistant:a2"],

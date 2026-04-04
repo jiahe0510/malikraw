@@ -16,6 +16,7 @@ export type {
 
 export { FeishuChannel, createFeishuChannel, extractFeishuText, toChannelInboundMessage } from "./feishu-channel.js";
 export { createHttpChannel } from "./http-channel.js";
+export { formatRuntimeEvent } from "./runtime-events.js";
 
 export function createConfiguredChannels(config: RuntimeConfig): GatewayChannel[] {
   return config.channels.map((channelConfig) => createChannel(channelConfig));
