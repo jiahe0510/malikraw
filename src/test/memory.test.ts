@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -8,9 +8,10 @@ import { compileRelevantMemoryBlock } from "../memory/memory-compiler.js";
 import { HeuristicEpisodeExtractor } from "../memory/extractors/episode-extractor.js";
 import { extractSemanticHeuristically } from "../memory/extractors/semantic-extractor.js";
 import { FileBackedMemoryItemStore, InMemoryMemoryItemStore } from "../memory/memory-item-store.js";
+import { getGlobalMemoryItemsDirectory, getSessionStateFilePath } from "../memory/markdown-store.js";
 import { MemoryRetriever } from "../memory/memory-retriever.js";
 import { MemoryWriter } from "../memory/memory-writer.js";
-import { InMemorySessionStateStore } from "../memory/session-store.js";
+import { FileBackedSessionStateStore, InMemorySessionStateStore } from "../memory/session-store.js";
 import { InMemoryToolChainMemoryStore } from "../memory/tool-chain-store.js";
 import { createMemorySearchTool } from "../tools/search-memory.js";
 
@@ -152,7 +153,7 @@ test("memory retriever compiles query memory and tool chains into one block", as
     query: "How should we implement memory?",
     summary: "Memory implementation plan",
     content: "Use local JSON stores and stage the implementation in three phases.",
-    scope: "project",
+    scope: "global",
     importance: 0.9,
     confidence: 0.8,
     source: "task_summary",
@@ -217,7 +218,7 @@ test("search_memory tool performs retrieval only when invoked", async () => {
           id: "m1",
           userId: "u1",
           agentId: "a1",
-          scope: "project",
+          scope: "global",
           query,
           summary: "Stored memory",
           content: "Previous answer and notes.",
@@ -350,21 +351,107 @@ test("memory writer stores one tool chain per user query", async () => {
   assert.deepEqual(records[0]?.toolChain.map((step) => step.toolName), ["web_search", "open_page"]);
 });
 
-test("file-backed memory item store quarantines corrupt JSON and recovers with an empty dataset", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "malikraw-memory-store-"));
-  const filePath = path.join(directory, "memory-items.json");
-  await writeFile(filePath, "{not valid json", "utf8");
-
-  const store = new FileBackedMemoryItemStore(filePath);
+test("file-backed memory item store quarantines corrupt markdown and recovers with an empty dataset", async () => {
+  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-memory-store-"));
+  const previousHome = process.env.MALIKRAW_HOME;
+  process.env.MALIKRAW_HOME = malikrawHome;
   const context = {
     sessionId: "s1",
     userId: "u1",
     agentId: "a1",
   };
+  const directory = getGlobalMemoryItemsDirectory(context.agentId);
+  const filePath = path.join(directory, "broken.md");
+  await mkdir(directory, { recursive: true });
+  await writeFile(filePath, "not valid frontmatter", "utf8");
 
-  const results = await store.searchRelevant(context, "hello", { limit: 5 });
-  assert.deepEqual(results, []);
+  const store = new FileBackedMemoryItemStore();
 
-  const entries = await readdir(directory);
-  assert.ok(entries.some((entry) => entry.startsWith("memory-items.json.corrupt-")));
+  try {
+    const results = await store.searchRelevant(context, "hello", { limit: 5 });
+    assert.deepEqual(results, []);
+
+    const entries = await readdir(directory);
+    assert.ok(entries.some((entry) => entry.startsWith("broken.md.corrupt-")));
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.MALIKRAW_HOME;
+    } else {
+      process.env.MALIKRAW_HOME = previousHome;
+    }
+  }
+});
+
+test("file-backed session state store persists markdown under ~/.malikraw/memory", async () => {
+  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-session-memory-"));
+  const previousHome = process.env.MALIKRAW_HOME;
+  process.env.MALIKRAW_HOME = malikrawHome;
+
+  try {
+    const store = new FileBackedSessionStateStore();
+    const record = {
+      sessionId: "s1",
+      userId: "u1",
+      agentId: "a1",
+      updatedAt: new Date().toISOString(),
+      state: {
+        recentMessages: [{ role: "user" as const, content: "hello" }],
+        taskState: {
+          goal: "hello",
+          currentPlan: [],
+          completedSteps: [],
+          openQuestions: [],
+          status: "active" as const,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    };
+
+    await store.write(record);
+
+    const sessionPath = getSessionStateFilePath(record);
+    const content = await readFile(sessionPath, "utf8");
+    assert.ok(sessionPath.startsWith(path.join(malikrawHome, "memory")));
+    assert.doesNotMatch(sessionPath, /\/users\//);
+    assert.match(content, /# Session Memory/);
+    assert.match(content, /## Recent Messages/);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.MALIKRAW_HOME;
+    } else {
+      process.env.MALIKRAW_HOME = previousHome;
+    }
+  }
+});
+
+test("session state is shared across users within the same session", async () => {
+  const sessionStore = new InMemorySessionStateStore();
+  const record = {
+    sessionId: "shared-session",
+    userId: "u1",
+    agentId: "a1",
+    updatedAt: new Date().toISOString(),
+    state: {
+      recentMessages: [{ role: "user" as const, content: "hello" }],
+      taskState: {
+        goal: "shared goal",
+        currentPlan: [],
+        completedSteps: [],
+        openQuestions: [],
+        status: "active" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  };
+
+  await sessionStore.write(record);
+
+  const shared = await sessionStore.read({
+    sessionId: "shared-session",
+    userId: "u2",
+    agentId: "a1",
+  });
+
+  assert.equal(shared?.sessionId, "shared-session");
+  assert.equal(shared?.state.taskState.goal, "shared goal");
 });

@@ -36,7 +36,7 @@ export class MemoryWriter {
         query: input.userMessage,
         summary: extracted?.summary ?? truncate(content, 240),
         content,
-        scope: input.context.projectId ? "project" : "session",
+        scope: "global",
         importance,
         confidence,
         source: input.compaction?.summary ? "history_compaction" : "task_summary",

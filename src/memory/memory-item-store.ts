@@ -1,15 +1,13 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 
-import { readJsonFile, withFileLock, writeJsonFileAtomic } from "./file-store.js";
 import { recordRuntimeObservation } from "../core/observability/observability.js";
+import { listMemoryItemMarkdownRecords, writeMemoryItemMarkdown } from "./markdown-store.js";
 import type {
   MemoryContext,
   MemoryItemStore,
   QueryMemoryItemCandidate,
   QueryMemoryItemRecord,
 } from "./types.js";
-import { getMemoryStoreDirectory } from "./session-store.js";
 
 export class InMemoryMemoryItemStore implements MemoryItemStore {
   private readonly records: QueryMemoryItemRecord[] = [];
@@ -74,35 +72,27 @@ export class InMemoryMemoryItemStore implements MemoryItemStore {
 }
 
 export class FileBackedMemoryItemStore implements MemoryItemStore {
-  constructor(
-    private readonly filePath = path.join(getMemoryStoreDirectory(), "memory-items.json"),
-  ) {}
-
   async insert(context: MemoryContext, item: QueryMemoryItemCandidate): Promise<void> {
-    await withFileLock(this.filePath, async () => {
-      const records = await this.readAll();
-      const now = new Date().toISOString();
-      records.push({
-        id: randomUUID(),
-        userId: context.userId,
-        agentId: context.agentId,
-        scope: item.scope,
-        query: item.query,
-        summary: item.summary,
-        content: item.content,
-        importance: item.importance,
-        confidence: item.confidence,
-        source: item.source,
-        createdAt: now,
-        updatedAt: now,
-      });
-      await this.writeAll(records);
+    const now = new Date().toISOString();
+    await writeMemoryItemMarkdown({
+      id: randomUUID(),
+      userId: context.userId,
+      agentId: context.agentId,
+      scope: item.scope,
+      query: item.query,
+      summary: item.summary,
+      content: item.content,
+      importance: item.importance,
+      confidence: item.confidence,
+      source: item.source,
+      createdAt: now,
+      updatedAt: now,
     });
     recordRuntimeObservation({
       name: "memory.item.save",
       message: "Stored a query-indexed memory item.",
       data: {
-        store: "file",
+        store: "markdown",
         userId: context.userId,
         agentId: context.agentId,
         sessionId: context.sessionId,
@@ -116,13 +106,13 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
     query: string,
     options: { limit: number },
   ): Promise<QueryMemoryItemRecord[]> {
-    const records = await this.readAll();
+    const records = await listMemoryItemMarkdownRecords(context.agentId);
     const results = searchRecords(records, context, query, options.limit);
     recordRuntimeObservation({
       name: "memory.item.search",
       message: "Searched query-indexed memory items.",
       data: {
-        store: "file",
+        store: "markdown",
         userId: context.userId,
         agentId: context.agentId,
         sessionId: context.sessionId,
@@ -132,14 +122,6 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
       },
     });
     return results;
-  }
-
-  private async readAll(): Promise<QueryMemoryItemRecord[]> {
-    return readJsonFile(this.filePath, []);
-  }
-
-  private async writeAll(records: QueryMemoryItemRecord[]): Promise<void> {
-    await writeJsonFileAtomic(this.filePath, records);
   }
 }
 
@@ -151,7 +133,7 @@ function searchRecords(
 ): QueryMemoryItemRecord[] {
   const normalizedQuery = query.toLowerCase();
   return records
-    .filter((record) => record.userId === context.userId && record.agentId === context.agentId)
+    .filter((record) => record.agentId === context.agentId)
     .map((record) => ({
       record,
       score: scoreRecord(record, normalizedQuery),

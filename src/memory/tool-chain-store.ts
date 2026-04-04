@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 
-import { readJsonFile, withFileLock, writeJsonFileAtomic } from "./file-store.js";
 import { recordRuntimeObservation } from "../core/observability/observability.js";
+import { listToolChainMarkdownRecords, writeToolChainMarkdown } from "./markdown-store.js";
 import type { MemoryContext, ToolChainMemoryRecord, ToolChainMemoryStore, ToolChainStep } from "./types.js";
-import { getMemoryStoreDirectory } from "./session-store.js";
 
 export class InMemoryToolChainMemoryStore implements ToolChainMemoryStore {
   private readonly records: ToolChainMemoryRecord[] = [];
@@ -72,10 +70,6 @@ export class InMemoryToolChainMemoryStore implements ToolChainMemoryStore {
 }
 
 export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
-  constructor(
-    private readonly filePath = path.join(getMemoryStoreDirectory(), "memory-tool-chain.json"),
-  ) {}
-
   async insert(
     context: MemoryContext,
     input: {
@@ -84,28 +78,24 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
       toolChain: ToolChainStep[];
     },
   ): Promise<void> {
-    await withFileLock(this.filePath, async () => {
-      const records = await this.readAll();
-      const now = new Date().toISOString();
-      records.push({
-        id: randomUUID(),
-        userId: context.userId,
-        agentId: context.agentId,
-        sessionId: context.sessionId,
-        projectId: context.projectId,
-        query: input.query,
-        assistantResponse: input.assistantResponse,
-        toolChain: input.toolChain,
-        createdAt: now,
-        updatedAt: now,
-      });
-      await this.writeAll(records);
+    const now = new Date().toISOString();
+    await writeToolChainMarkdown({
+      id: randomUUID(),
+      userId: context.userId,
+      agentId: context.agentId,
+      sessionId: context.sessionId,
+      projectId: context.projectId,
+      query: input.query,
+      assistantResponse: input.assistantResponse,
+      toolChain: input.toolChain,
+      createdAt: now,
+      updatedAt: now,
     });
     recordRuntimeObservation({
       name: "memory.tool_chain.save",
       message: "Stored a reusable tool chain.",
       data: {
-        store: "file",
+        store: "markdown",
         userId: context.userId,
         agentId: context.agentId,
         sessionId: context.sessionId,
@@ -120,13 +110,13 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
     query: string,
     options: { limit: number },
   ): Promise<ToolChainMemoryRecord[]> {
-    const records = await this.readAll();
+    const records = await listToolChainMarkdownRecords(context.agentId);
     const results = searchRecords(records, context, query, options.limit);
     recordRuntimeObservation({
       name: "memory.tool_chain.search",
       message: "Searched reusable tool chains.",
       data: {
-        store: "file",
+        store: "markdown",
         userId: context.userId,
         agentId: context.agentId,
         sessionId: context.sessionId,
@@ -136,14 +126,6 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
       },
     });
     return results;
-  }
-
-  private async readAll(): Promise<ToolChainMemoryRecord[]> {
-    return readJsonFile(this.filePath, []);
-  }
-
-  private async writeAll(records: ToolChainMemoryRecord[]): Promise<void> {
-    await writeJsonFileAtomic(this.filePath, records);
   }
 }
 
@@ -155,7 +137,7 @@ function searchRecords(
 ): ToolChainMemoryRecord[] {
   const normalizedQuery = query.toLowerCase();
   return records
-    .filter((record) => record.userId === context.userId && record.agentId === context.agentId)
+    .filter((record) => record.agentId === context.agentId)
     .map((record) => ({
       record,
       score: scoreToolChain(record, normalizedQuery),

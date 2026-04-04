@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const fileLocks = new Map<string, Promise<void>>();
@@ -27,6 +27,63 @@ export async function writeJsonFileAtomic(filePath: string, value: unknown): Pro
   await rename(tempPath, filePath);
 }
 
+export async function readTextFile(filePath: string): Promise<string | undefined> {
+  try {
+    return await readFile(filePath, "utf8");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+export async function writeTextFileAtomic(filePath: string, value: string): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tempPath, value, "utf8");
+  await rename(tempPath, filePath);
+}
+
+export async function listFilesRecursive(directoryPath: string, suffix?: string): Promise<string[]> {
+  try {
+    const entries = await readdir(directoryPath, { withFileTypes: true });
+    const files = await Promise.all(entries.map(async (entry) => {
+      const fullPath = path.join(directoryPath, entry.name);
+      if (entry.isDirectory()) {
+        return listFilesRecursive(fullPath, suffix);
+      }
+
+      if (suffix && !entry.name.endsWith(suffix)) {
+        return [];
+      }
+
+      return [fullPath];
+    }));
+    return files.flat();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function quarantineCorruptFile(filePath: string): Promise<void> {
+  try {
+    const corruptPath = `${filePath}.corrupt-${Date.now()}`;
+    await rename(filePath, corruptPath);
+    console.warn(`[memory:file:recover] moved corrupt file from ${filePath} to ${corruptPath}`);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
+
 export async function withFileLock<T>(filePath: string, work: () => Promise<T>): Promise<T> {
   const previous = fileLocks.get(filePath) ?? Promise.resolve();
   let release!: () => void;
@@ -42,19 +99,6 @@ export async function withFileLock<T>(filePath: string, work: () => Promise<T>):
     release();
     if (fileLocks.get(filePath) === current) {
       fileLocks.delete(filePath);
-    }
-  }
-}
-
-async function quarantineCorruptFile(filePath: string): Promise<void> {
-  try {
-    const corruptPath = `${filePath}.corrupt-${Date.now()}`;
-    await rename(filePath, corruptPath);
-    console.warn(`[memory:file:recover] moved corrupt file from ${filePath} to ${corruptPath}`);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw error;
     }
   }
 }
