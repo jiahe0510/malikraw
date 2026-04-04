@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { OpenAICompatibleModel, type AgentMessage } from "../index.js";
+import { ModelRequestError, OpenAICompatibleModel, type AgentMessage } from "../index.js";
 
 test("OpenAICompatibleModel strips <think> blocks from final output", async () => {
   const originalFetch = globalThis.fetch;
@@ -78,6 +78,42 @@ test("OpenAICompatibleModel strips leaked planning preambles from final output",
       type: "final",
       outputText: "你好，我在。",
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("OpenAICompatibleModel marks context-length failures", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response("maximum context length exceeded", {
+      status: 400,
+      headers: { "content-type": "text/plain" },
+    });
+
+  try {
+    const model = new OpenAICompatibleModel({
+      baseURL: "https://example.invalid/v1",
+      apiKey: "dummy",
+      model: "test-model",
+      contextWindow: 8192,
+      compact: {
+        thresholdTokens: 4096,
+        targetTokens: 2048,
+      },
+    });
+
+    await assert.rejects(
+      () => model.generate({
+        messages: [{ role: "user", content: "hi" } satisfies AgentMessage],
+        tools: [],
+      }),
+      (error: unknown) => {
+        assert.equal(error instanceof ModelRequestError, true);
+        assert.equal((error as ModelRequestError).contextLengthExceeded, true);
+        return true;
+      },
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

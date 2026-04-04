@@ -16,6 +16,8 @@ export type AgentPromptInput = {
   personalitySystemContent?: string;
   agentSystemContent?: string;
   memorySystemContent?: string;
+  userContext?: Record<string, string | undefined>;
+  systemContext?: Record<string, string | undefined>;
   userRequest: string;
   activeSkills: SelectedSkill[];
   toolSummary: string;
@@ -72,6 +74,14 @@ export type ToolAuthorizationPolicy = (
   context: ToolAuthorizationContext,
 ) => Promise<ToolAuthorizationResult> | ToolAuthorizationResult;
 
+export type ReactiveCompactionPolicy = (
+  context: {
+    messages: AgentMessage[];
+    error: unknown;
+    iteration: number;
+  },
+) => Promise<AgentMessage[] | undefined> | AgentMessage[] | undefined;
+
 export type AgentLoopInput = {
   model: AgentModel;
   toolRegistry: {
@@ -102,9 +112,12 @@ export type AgentLoopInput = {
   stateSummary?: string;
   memorySummary?: string;
   relevantMemoryBlock?: string;
+  userContext?: Record<string, string | undefined>;
+  systemContext?: Record<string, string | undefined>;
   maxIterations?: number;
   debugModelMessages?: boolean;
   authorizeTool?: ToolAuthorizationPolicy;
+  reactiveCompact?: ReactiveCompactionPolicy;
 };
 
 export type AgentLoopResult = {

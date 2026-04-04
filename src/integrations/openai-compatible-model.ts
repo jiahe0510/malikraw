@@ -33,6 +33,24 @@ type OpenAIChatCompletionResponse = {
   }>;
 };
 
+export class ModelRequestError extends Error {
+  readonly status: number;
+  readonly responseBody: string;
+  readonly contextLengthExceeded: boolean;
+
+  constructor(input: {
+    status: number;
+    responseBody: string;
+    contextLengthExceeded: boolean;
+  }) {
+    super(`Model request failed with ${input.status}: ${input.responseBody}`);
+    this.name = "ModelRequestError";
+    this.status = input.status;
+    this.responseBody = input.responseBody;
+    this.contextLengthExceeded = input.contextLengthExceeded;
+  }
+}
+
 export class OpenAICompatibleModel implements AgentModel {
   constructor(private readonly config: OpenAICompatibleConfig) {}
 
@@ -54,7 +72,11 @@ export class OpenAICompatibleModel implements AgentModel {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`Model request failed with ${response.status}: ${body}`);
+      throw new ModelRequestError({
+        status: response.status,
+        responseBody: body,
+        contextLengthExceeded: looksLikeContextLengthFailure(response.status, body),
+      });
     }
 
     const payload = await response.json() as OpenAIChatCompletionResponse;
@@ -118,6 +140,21 @@ function normalizeAssistantContent(content: string | null | undefined): string {
 
 function buildChatCompletionsUrl(baseURL: string): string {
   return `${baseURL.replace(/\/+$/, "")}/chat/completions`;
+}
+
+function looksLikeContextLengthFailure(status: number, body: string): boolean {
+  if (status !== 400 && status !== 413 && status !== 422) {
+    return false;
+  }
+
+  const normalized = body.toLowerCase();
+  return [
+    "maximum context length",
+    "context length exceeded",
+    "context window",
+    "prompt is too long",
+    "too many tokens",
+  ].some((pattern) => normalized.includes(pattern));
 }
 
 function stripThinkBlocks(content: string): string {

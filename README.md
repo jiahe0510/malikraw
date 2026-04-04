@@ -245,19 +245,23 @@ Current session-history compression now has two layers:
 - gateway/session-store compaction
   - conservative fallback based on message count and char size
 - runtime prompt compaction
-  - provider-driven, based on estimated token budget
+  - provider-driven, based on estimated token budget and model context settings
   - uses `contextWindow`, `maxTokens`, and `compact.thresholdTokens`
   - only compresses prior conversation history
   - does not compress the system prompt
 
 When runtime compaction triggers:
 
+- it first tries a micro-compact pass on old large tool outputs
+- if that is not enough, it builds a structured session handoff block and keeps the recent tail
+- if that is still not enough, it falls back to a model-generated summary using `COMPACT.md`
 - older history is compressed into a synthetic `user` message starting with `[compacted_history]`
 - recent history is kept
 - recent history is aligned to a `user` boundary
 - compaction guidance is read from workspace `COMPACT.md` by default
 - compacted information is also written into `memory_items`
 - if embeddings are enabled, it is indexed by the query embedding for later retrieval
+- if the model still returns a context-length error at runtime, malikraw performs one more reactive compact pass and retries automatically
 
 This keeps the active prompt smaller without dropping older context completely.
 

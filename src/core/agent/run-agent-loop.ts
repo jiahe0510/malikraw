@@ -35,22 +35,43 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     stateSummary: input.stateSummary,
     memorySummary: input.memorySummary,
     relevantMemoryBlock: input.relevantMemoryBlock,
+    userContext: input.userContext,
+    systemContext: input.systemContext,
   });
 
   const messages: AgentMessage[] = [...prompt.messages];
   const toolResults = [];
   const maxIterations = input.maxIterations;
+  let reactiveCompactions = 0;
 
   for (let iteration = 0; ; iteration += 1) {
     if (maxIterations !== undefined && iteration >= maxIterations) {
       throw new Error(`Agent loop exceeded maxIterations=${maxIterations}.`);
     }
 
-    const modelResponse = await input.model.generate({
-      messages,
-      tools: input.toolRegistry.toModelTools(visibleToolNames),
-      debug: input.debugModelMessages,
-    });
+    let modelResponse;
+    try {
+      modelResponse = await input.model.generate({
+        messages,
+        tools: input.toolRegistry.toModelTools(visibleToolNames),
+        debug: input.debugModelMessages,
+      });
+    } catch (error) {
+      const compactedMessages = await tryReactiveCompact(
+        input,
+        messages,
+        error,
+        iteration,
+        reactiveCompactions,
+      );
+      if (!compactedMessages) {
+        throw error;
+      }
+
+      reactiveCompactions += 1;
+      messages.splice(0, messages.length, ...compactedMessages);
+      continue;
+    }
 
     if (modelResponse.type === "final") {
       messages.push({
@@ -136,6 +157,24 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   }
 }
 
+async function tryReactiveCompact(
+  input: AgentLoopInput,
+  messages: AgentMessage[],
+  error: unknown,
+  iteration: number,
+  attempts: number,
+): Promise<AgentMessage[] | undefined> {
+  if (!input.reactiveCompact || attempts >= 2 || !isContextLengthError(error)) {
+    return undefined;
+  }
+
+  return input.reactiveCompact({
+    messages: [...messages],
+    error,
+    iteration,
+  });
+}
+
 async function authorizeTool(
   input: AgentLoopInput,
   messages: AgentMessage[],
@@ -164,4 +203,24 @@ function stringifyHistory(history: AgentMessage[] | undefined): string | undefin
   return history
     .map((message) => `${message.role}: ${message.content}`)
     .join("\n");
+}
+
+function isContextLengthError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const record = error as Record<string, unknown>;
+  if (record.contextLengthExceeded === true) {
+    return true;
+  }
+
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  return [
+    "maximum context length",
+    "context length exceeded",
+    "prompt is too long",
+    "too many tokens",
+    "context window",
+  ].some((pattern) => message.includes(pattern));
 }

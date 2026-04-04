@@ -15,7 +15,7 @@ import type { StoredFeishuChannelConfig } from "../core/config/config-store.js";
 import type { AgentMessage } from "../core/agent/types.js";
 import { createMemoryService } from "../memory/memory-service.js";
 import { runMemoryMigrations } from "../memory/migrate.js";
-import { compactContextIfNeeded } from "./context-compactor.js";
+import { compactContextIfNeeded, reactivelyCompactMessages } from "./context-compactor.js";
 import { readBundledPersonalityFile } from "./system-template-context.js";
 import type { MessageDispatch } from "../channels/channel.js";
 import {
@@ -120,8 +120,23 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
         history: compaction.history,
         stateSummary: config.stateSummary,
         memorySummary: config.memorySummary,
+        userContext: {
+          "Current Date": new Date().toISOString().slice(0, 10),
+        },
+        systemContext: {
+          Channel: channelId ?? "local",
+          Session: resolvedSessionId,
+          Project: resolvedProjectId,
+        },
         maxIterations: config.maxIterations,
         debugModelMessages: config.debugModelMessages,
+        reactiveCompact: ({ messages }) => {
+          const compacted = reactivelyCompactMessages({
+            modelConfig: config.model,
+            messages,
+          });
+          return compacted.triggered ? compacted.messages : undefined;
+        },
       });
 
       await memoryService.write({

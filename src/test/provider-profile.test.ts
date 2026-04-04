@@ -23,6 +23,7 @@ test("qwen profile merges instruction messages into one system message", () => {
   const messages: AgentMessage[] = [
     { role: "system", content: "global policy" },
     { role: "developer", content: "skill block" },
+    { role: "user", content: "<system-reminder>\n# Current Date\n2026-04-04\n</system-reminder>" },
     { role: "user", content: "help me" },
   ];
 
@@ -30,6 +31,7 @@ test("qwen profile merges instruction messages into one system message", () => {
 
   assert.deepEqual(normalized, [
     { role: "system", content: "global policy\n\nskill block" },
+    { role: "user", content: "<system-reminder>\n# Current Date\n2026-04-04\n</system-reminder>" },
     { role: "user", content: "help me" },
   ]);
 });

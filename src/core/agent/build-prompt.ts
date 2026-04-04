@@ -15,7 +15,6 @@ export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
     ...toSystemMessages("Identity", input.identitySystemContent),
     ...toSystemMessages("Personality", input.personalitySystemContent),
     ...toSystemMessages("Workspace AGENT.md", input.agentSystemContent),
-    ...toSystemMessages("Workspace MEMORY.md", input.memorySystemContent),
     {
       role: "developer",
       content: buildRuntimeContextBlock(input),
@@ -23,9 +22,14 @@ export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
   ];
 
   const promptMessages = injectSkillPromptBlocks(baseMessages, input.activeSkills);
+  const userContextReminder = buildUserContextReminder(input);
 
   const messages: AgentMessage[] = [
     ...promptMessages,
+    ...(userContextReminder ? [{
+      role: "user" as const,
+      content: userContextReminder,
+    }] : []),
     ...history,
     {
       role: "user",
@@ -59,14 +63,15 @@ function toSystemMessages(title: string, content: string | undefined): PromptMes
 }
 
 function buildRuntimeContextBlock(input: AgentPromptInput): string {
+  const systemContextLines = toContextLines(input.systemContext);
   return [
     "Runtime Context",
     "- Visible tools:",
     ...toToolLines(input.toolSummary),
     `- State summary: ${input.stateSummary ?? "No state summary provided."}`,
     `- Memory summary: ${input.memorySummary ?? "No memory summary provided."}`,
-    ...(input.relevantMemoryBlock?.trim()
-      ? [`- Retrieved memory:\n${input.relevantMemoryBlock.trim()}`]
+    ...(systemContextLines.length > 0
+      ? ["- System context:", ...systemContextLines.map((line) => `  - ${line}`)]
       : []),
   ].join("\n");
 }
@@ -95,4 +100,52 @@ function normalizeCompactedHistory(history: AgentMessage[]): AgentMessage[] {
 
     return message;
   });
+}
+
+function buildUserContextReminder(input: AgentPromptInput): string | undefined {
+  const sections = [
+    ["Workspace MEMORY.md", input.memorySystemContent],
+    ["Retrieved Memory", input.relevantMemoryBlock],
+    ...Object.entries(input.userContext ?? {}),
+  ]
+    .map(([title, content]) => {
+      const trimmed = content?.trim();
+      if (!trimmed) {
+        return undefined;
+      }
+
+      return `# ${title}\n${trimmed}`;
+    })
+    .filter((value): value is string => Boolean(value));
+
+  if (sections.length === 0) {
+    return undefined;
+  }
+
+  return [
+    "<system-reminder>",
+    "Use the following context when it helps answer the user's request.",
+    "",
+    ...sections,
+    "</system-reminder>",
+  ].join("\n");
+}
+
+function toContextLines(
+  context: Record<string, string | undefined> | undefined,
+): string[] {
+  if (!context) {
+    return [];
+  }
+
+  return Object.entries(context)
+    .map(([key, value]) => {
+      const trimmed = value?.trim();
+      if (!trimmed) {
+        return undefined;
+      }
+
+      return `${key}: ${trimmed}`;
+    })
+    .filter((line): line is string => Boolean(line));
 }

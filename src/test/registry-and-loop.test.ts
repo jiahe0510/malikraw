@@ -59,6 +59,12 @@ read before edit`));
     personalitySystemContent: "# Personality\n\nBe direct.",
     agentSystemContent: "# Agent Capabilities\n\nCan inspect workspace files.",
     memorySystemContent: "# Memory\n\nUser prefers concise replies.",
+    userContext: {
+      "Current Date": "2026-04-04",
+    },
+    systemContext: {
+      Channel: "feishu",
+    },
     userRequest: "update a file",
     activeSkills: selected.skills,
     toolSummary: "- read_file: read file\n- edit_file: edit file",
@@ -76,6 +82,8 @@ read before edit`));
   assert.match(content, /Agent Capabilities/);
   assert.match(content, /User prefers concise replies/);
   assert.match(content, /Runtime Context/);
+  assert.match(content, /<system-reminder>/);
+  assert.match(content, /Current Date/);
   assert.match(content, /\[Relevant Memory\]/);
   assert.match(content, /Active Skills/);
   assert.match(content, /edit_file|write_file/);
@@ -89,6 +97,13 @@ read before edit`));
   assert.match(prompt.messages[2]?.content ?? "", /Personality/);
   assert.equal(prompt.messages[3]?.role, "system");
   assert.match(prompt.messages[3]?.content ?? "", /Workspace AGENT\.md/);
+  assert.equal(prompt.messages[4]?.role, "developer");
+  assert.match(prompt.messages[4]?.content ?? "", /System context:/);
+  assert.match(prompt.messages[4]?.content ?? "", /Channel: feishu/);
+  assert.equal(prompt.messages[5]?.role, "developer");
+  assert.match(prompt.messages[5]?.content ?? "", /Active Skills/);
+  assert.equal(prompt.messages[6]?.role, "user");
+  assert.match(prompt.messages[6]?.content ?? "", /<system-reminder>/);
 });
 
 test("buildPrompt omits retrieved memory section when none is injected", () => {
@@ -103,6 +118,7 @@ test("buildPrompt omits retrieved memory section when none is injected", () => {
 
   const content = prompt.messages.map((message) => message.content).join("\n");
   assert.doesNotMatch(content, /Retrieved memory:/);
+  assert.doesNotMatch(content, /<system-reminder>/);
 });
 
 test("buildPrompt rewrites legacy assistant session summary into a synthetic user history message", () => {
@@ -272,4 +288,49 @@ read before edit`));
 
   assert.deepEqual(model.seenTools, ["read_file", "web_search"]);
   assert.deepEqual(result.visibleToolNames, ["read_file", "web_search"]);
+});
+
+test("runAgentLoop retries after reactive compaction on context length errors", async () => {
+  class ReactiveModel implements AgentModel {
+    calls = 0;
+
+    async generate(input: { messages: AgentMessage[] }): Promise<ModelTurnResponse> {
+      this.calls += 1;
+      if (this.calls === 1) {
+        assert.equal(input.messages.at(0)?.role, "system");
+        throw Object.assign(new Error("maximum context length exceeded"), {
+          contextLengthExceeded: true,
+        });
+      }
+
+      assert.equal(input.messages.at(0)?.role, "system");
+      assert.match(input.messages[1]?.content ?? "", /^\[compacted_history\]/);
+      return {
+        type: "final",
+        outputText: "done after compact",
+      };
+    }
+  }
+
+  const model = new ReactiveModel();
+  const result = await runAgentLoop({
+    model,
+    toolRegistry: new ToolRegistry(),
+    skillRegistry: new SkillRegistry(),
+    skillRouter: new ManualSkillRouter([]),
+    globalPolicy: "global policy",
+    userRequest: "latest request",
+    history: [
+      { role: "user", content: "old question " + "x".repeat(4000) },
+      { role: "assistant", content: "old answer " + "y".repeat(4000) },
+    ],
+    reactiveCompact: ({ messages }) => [
+      messages[0]!,
+      { role: "user", content: "[compacted_history]\nCurrent State\n- latest handoff" },
+      { role: "user", content: "latest request" },
+    ],
+  });
+
+  assert.equal(model.calls, 2);
+  assert.equal(result.finalOutput, "done after compact");
 });
