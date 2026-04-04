@@ -438,7 +438,7 @@ export class FeishuChannel implements GatewayChannel {
       return;
     }
 
-    if (!isFeishuBotMentioned(data, this.botOpenId)) {
+    if (!shouldRespondToFeishuMessage(data, this.botOpenId)) {
       console.log(
         `[channel:feishu] ignored unmentioned message id=${this.id} messageId=${data.message.message_id} chatId=${data.message.chat_id}`,
       );
@@ -662,6 +662,17 @@ export function isFeishuBotMentioned(
   }
 
   return false;
+}
+
+export function shouldRespondToFeishuMessage(
+  event: Pick<FeishuReceiveMessageEvent, "message">,
+  botOpenId?: string,
+): boolean {
+  if (event.message.chat_type !== "group") {
+    return true;
+  }
+
+  return isFeishuBotMentioned(event, botOpenId);
 }
 
 function normalizeFeishuInboundContent(

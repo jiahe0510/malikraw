@@ -1,5 +1,6 @@
 import { collectQueryContext, finalizeQueryContext, getVisibleToolNames } from "./build-prompt.js";
 import { createTextMessage, getMessageText } from "./message-content.js";
+import { recordRuntimeObservation } from "../observability/observability.js";
 import { executeToolCalls } from "../tool-registry/tool-orchestrator.js";
 import type {
   AgentLoopEvent,
@@ -60,6 +61,18 @@ export async function* runAgentLoopEvents(
     systemContext: input.systemContext,
   });
   const prompt = finalizeQueryContext(queryContext);
+  recordRuntimeObservation({
+    name: "context.build",
+    message: "Built query context and prompt messages.",
+    data: {
+      activeSkillIds: queryContext.activeSkillIds,
+      instructionMessages: queryContext.instructionMessages.length,
+      historyMessages: queryContext.history.length,
+      promptMessages: prompt.messages.length,
+      visibleToolNames,
+      userRequest: input.userRequest,
+    },
+  });
 
   yield {
     type: "prompt_ready",

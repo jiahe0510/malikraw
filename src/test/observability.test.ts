@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { compactContextIfNeeded } from "../runtime/context-compactor.js";
+import { runAgentLoopEvents } from "../core/agent/run-agent-loop.js";
 import { executeTool } from "../core/tool-registry/tool-executor.js";
 import { s } from "../core/tool-registry/schema.js";
 import { getRuntimeEventFilePath, getRuntimeLogFilePath } from "../core/observability/observability.js";
@@ -68,19 +69,19 @@ test("observability writes compaction and tool call events to ~/.malikraw/log an
     const logContent = await readFile(getRuntimeLogFilePath(), "utf8");
     const eventContent = await readFile(getRuntimeEventFilePath(), "utf8");
 
-    assert.match(logContent, /compact\.micro/);
-    assert.match(logContent, /compact\.triggered/);
-    assert.match(logContent, /tool\.call\.start/);
-    assert.match(logContent, /tool\.call\.success/);
+    assert.match(logContent, /context\.compact\.micro/);
+    assert.match(logContent, /context\.compact/);
+    assert.match(logContent, /tool\.start/);
+    assert.match(logContent, /tool\.success/);
 
     const eventNames = eventContent
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line).name);
-    assert.ok(eventNames.includes("compact.micro"));
-    assert.ok(eventNames.includes("compact.triggered"));
-    assert.ok(eventNames.includes("tool.call.start"));
-    assert.ok(eventNames.includes("tool.call.success"));
+    assert.ok(eventNames.includes("context.compact.micro"));
+    assert.ok(eventNames.includes("context.compact"));
+    assert.ok(eventNames.includes("tool.start"));
+    assert.ok(eventNames.includes("tool.success"));
   } finally {
     restoreHome(previousHome);
   }
@@ -163,11 +164,58 @@ test("observability writes memory search and retrieve events", async () => {
       .split("\n")
       .map((line) => JSON.parse(line).name);
 
-    assert.ok(eventNames.includes("memory.search.items.start"));
-    assert.ok(eventNames.includes("memory.search.items.result"));
-    assert.ok(eventNames.includes("memory.search.tool_chain.start"));
-    assert.ok(eventNames.includes("memory.search.tool_chain.result"));
+    assert.ok(eventNames.includes("memory.search.start"));
+    assert.ok(eventNames.includes("memory.search.result"));
     assert.ok(eventNames.includes("memory.retrieve"));
+  } finally {
+    restoreHome(previousHome);
+  }
+});
+
+test("observability writes context build events", async () => {
+  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-observability-"));
+  const previousHome = process.env.MALIKRAW_HOME;
+  process.env.MALIKRAW_HOME = malikrawHome;
+
+  try {
+    const stream = runAgentLoopEvents({
+      model: {
+        generate: async () => ({
+          type: "final",
+          outputText: "done",
+        }),
+      },
+      toolRegistry: {
+        toModelTools: () => [],
+        describeTools: () => "No tools are currently available.",
+        has: () => false,
+        execute: async () => {
+          throw new Error("tool execution should not happen");
+        },
+      },
+      skillRouter: {
+        route: () => ({ activeSkillIds: [] }),
+      },
+      skillRegistry: {
+        list: () => [],
+        select: () => ({ ok: true, skills: [] }),
+      },
+      globalPolicy: "Follow the system policy.",
+      userRequest: "hello",
+    });
+
+    while (true) {
+      const next = await stream.next();
+      if (next.done) {
+        break;
+      }
+    }
+
+    const eventNames = (await readFile(getRuntimeEventFilePath(), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).name);
+    assert.ok(eventNames.includes("context.build"));
   } finally {
     restoreHome(previousHome);
   }

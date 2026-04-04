@@ -67,7 +67,7 @@ export class OpenAICompatibleModel implements AgentModel {
   async generate(input: AgentModelRequest): Promise<ModelTurnResponse> {
     const requestBody = buildRequestBody(this.config, input);
     recordRuntimeObservation({
-      name: "llm.request.start",
+      name: "llm.start",
       message: "Started model request.",
       data: {
         model: this.config.model,
@@ -90,7 +90,7 @@ export class OpenAICompatibleModel implements AgentModel {
     if (!response.ok) {
       const body = await response.text();
       recordRuntimeObservation({
-        name: "llm.request.fail",
+        name: "llm.fail",
         level: "error",
         message: "Model request failed.",
         data: {
@@ -110,7 +110,7 @@ export class OpenAICompatibleModel implements AgentModel {
 
     const payload = await response.json() as OpenAIChatCompletionResponse;
     recordRuntimeObservation({
-      name: "llm.request.success",
+      name: "llm.success",
       message: "Model request completed.",
       data: {
         model: this.config.model,

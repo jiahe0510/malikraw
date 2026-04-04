@@ -39,7 +39,7 @@ export async function executeTool<TResult = unknown>(input: {
     input: input.rawInput,
   });
   recordRuntimeObservation({
-    name: "tool.call.start",
+    name: "tool.start",
     message: "Tool execution started.",
     data: {
       toolName: input.toolName,
@@ -76,7 +76,7 @@ export async function executeTool<TResult = unknown>(input: {
       output: data,
     });
     recordRuntimeObservation({
-      name: "tool.call.success",
+      name: "tool.success",
       message: "Tool execution succeeded.",
       data: {
         toolName: input.toolName,
@@ -118,7 +118,7 @@ function fail(
     error,
   });
   recordRuntimeObservation({
-    name: "tool.call.fail",
+    name: "tool.fail",
     level: "error",
     message: "Tool execution failed.",
     data: {

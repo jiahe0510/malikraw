@@ -37,7 +37,7 @@ export class DefaultMemoryService implements MemoryService {
   async write(input: MemoryWriteInput) {
     const result = await this.writer.write(input);
     recordRuntimeObservation({
-      name: "memory.write",
+      name: "memory.save",
       message: "Persisted memory artifacts for the completed turn.",
       data: {
         userId: input.context.userId,

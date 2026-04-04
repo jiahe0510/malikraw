@@ -218,8 +218,8 @@ test("OpenAICompatibleModel writes llm request events", async () => {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line).name);
-    assert.ok(eventNames.includes("llm.request.start"));
-    assert.ok(eventNames.includes("llm.request.success"));
+    assert.ok(eventNames.includes("llm.start"));
+    assert.ok(eventNames.includes("llm.success"));
   } finally {
     globalThis.fetch = originalFetch;
     if (previousHome === undefined) {

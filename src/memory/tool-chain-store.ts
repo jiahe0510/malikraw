@@ -31,7 +31,7 @@ export class InMemoryToolChainMemoryStore implements ToolChainMemoryStore {
       updatedAt: now,
     });
     recordRuntimeObservation({
-      name: "memory.tool_chain.store",
+      name: "memory.tool_chain.save",
       message: "Stored a reusable tool chain.",
       data: {
         store: "in-memory",
@@ -102,7 +102,7 @@ export class FileBackedToolChainMemoryStore implements ToolChainMemoryStore {
       await this.writeAll(records);
     });
     recordRuntimeObservation({
-      name: "memory.tool_chain.store",
+      name: "memory.tool_chain.save",
       message: "Stored a reusable tool chain.",
       data: {
         store: "file",

@@ -96,7 +96,7 @@ export async function compactContextIfNeeded(input: ContextCompactionInput): Pro
     strategyOnSuccess: undefined,
   });
   if (result.triggered) {
-    recordCompactionResult("compact.triggered", input.userRequest, result, {
+    recordCompactionResult("context.compact", input.userRequest, result, {
       systemTokens,
       historyTokens,
       inputBudget,
@@ -151,7 +151,7 @@ export function reactivelyCompactMessages(input: ReactiveCompactionInput): React
     messagesCompacted: compacted.messagesCompacted,
   };
   recordCompactionResult(
-    "compact.reactive",
+    "context.compact.reactive",
     findLastUserMessage(conversationMessages) ?? "",
     {
       ...compacted,
@@ -184,7 +184,7 @@ async function compactHistoryLayers(input: {
   const micro = microCompactHistory(input.history);
   if (micro.changed) {
     recordRuntimeObservation({
-      name: "compact.micro",
+      name: "context.compact.micro",
       message: "Applied micro compaction to older messages.",
       data: {
         messagesCompacted: micro.messagesCompacted,
@@ -217,7 +217,7 @@ async function compactHistoryLayers(input: {
   );
   if (sessionCompact.triggered) {
     recordRuntimeObservation({
-      name: "compact.session",
+      name: "context.compact.session",
       message: "Built structured session compact handoff.",
       data: {
         messagesCompacted: sessionCompact.messagesCompacted,
@@ -246,7 +246,7 @@ async function compactHistoryLayers(input: {
     ? await summarizeHistory(input, sessionCompact.olderMessages, sessionCompact.summary)
     : buildEmergencySummary(sessionCompact.olderMessages, input.userRequest, sessionCompact.summary);
   recordRuntimeObservation({
-    name: "compact.summary",
+    name: "context.compact.summary",
     message: "Fell back to summary-based compaction.",
     data: {
       messagesCompacted: sessionCompact.messagesCompacted || micro.messagesCompacted,
@@ -289,7 +289,7 @@ function compactHistoryLayersSync(input: {
   const micro = microCompactHistory(input.history);
   if (micro.changed) {
     recordRuntimeObservation({
-      name: "compact.micro",
+      name: "context.compact.micro",
       message: "Applied micro compaction to older messages.",
       data: {
         messagesCompacted: micro.messagesCompacted,
@@ -322,7 +322,7 @@ function compactHistoryLayersSync(input: {
   );
   if (sessionCompact.triggered) {
     recordRuntimeObservation({
-      name: "compact.session",
+      name: "context.compact.session",
       message: "Built structured session compact handoff.",
       data: {
         messagesCompacted: sessionCompact.messagesCompacted,
@@ -349,7 +349,7 @@ function compactHistoryLayersSync(input: {
 
   const summary = buildEmergencySummary(sessionCompact.olderMessages, input.userRequest, sessionCompact.summary);
   recordRuntimeObservation({
-    name: "compact.summary",
+    name: "context.compact.summary",
     message: "Fell back to summary-based compaction.",
     data: {
       messagesCompacted: sessionCompact.messagesCompacted || micro.messagesCompacted,

@@ -57,13 +57,14 @@ export class MemoryRetriever {
 
   private async searchMemoryItems(input: MemoryRetrieveInput) {
     recordRuntimeObservation({
-      name: "memory.search.items.start",
-      message: "Searching stored memory items.",
+      name: "memory.search.start",
+      message: "Searching stored memory.",
       data: {
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
         projectId: input.context.projectId ?? "-",
+        target: "memory_items",
         limit: 4,
         query: truncate(input.query, 400),
       },
@@ -74,12 +75,13 @@ export class MemoryRetriever {
     });
 
     recordRuntimeObservation({
-      name: "memory.search.items.result",
-      message: "Finished searching stored memory items.",
+      name: "memory.search.result",
+      message: "Finished searching stored memory.",
       data: {
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
+        target: "memory_items",
         count: memoryItems.length,
         summaries: memoryItems.map((item) => truncate(item.summary, 160)),
       },
@@ -91,24 +93,26 @@ export class MemoryRetriever {
   private async searchToolChains(input: MemoryRetrieveInput) {
     const limit = 3;
     recordRuntimeObservation({
-      name: "memory.search.tool_chain.start",
-      message: "Searching reusable tool chains.",
+      name: "memory.search.start",
+      message: "Searching stored memory.",
       data: {
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
+        target: "tool_chains",
         limit,
         query: truncate(input.query, 400),
       },
     });
     const toolChains = await this.toolChainStore.searchRelevant(input.context, input.query, { limit });
     recordRuntimeObservation({
-      name: "memory.search.tool_chain.result",
-      message: "Finished searching reusable tool chains.",
+      name: "memory.search.result",
+      message: "Finished searching stored memory.",
       data: {
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
+        target: "tool_chains",
         count: toolChains.length,
         queries: toolChains.map((item) => truncate(item.query, 120)),
       },

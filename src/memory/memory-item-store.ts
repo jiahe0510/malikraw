@@ -34,7 +34,7 @@ export class InMemoryMemoryItemStore implements MemoryItemStore {
       updatedAt: now,
     });
     recordRuntimeObservation({
-      name: "memory.items.store",
+      name: "memory.item.save",
       message: "Stored a query-indexed memory item.",
       data: {
         store: "in-memory",
@@ -53,7 +53,7 @@ export class InMemoryMemoryItemStore implements MemoryItemStore {
   ): Promise<QueryMemoryItemRecord[]> {
     const results = searchRecords(this.records, context, query, options.limit);
     recordRuntimeObservation({
-      name: "memory.items.search",
+      name: "memory.item.search",
       message: "Searched query-indexed memory items.",
       data: {
         store: "in-memory",
@@ -99,7 +99,7 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
       await this.writeAll(records);
     });
     recordRuntimeObservation({
-      name: "memory.items.store",
+      name: "memory.item.save",
       message: "Stored a query-indexed memory item.",
       data: {
         store: "file",
@@ -119,7 +119,7 @@ export class FileBackedMemoryItemStore implements MemoryItemStore {
     const records = await this.readAll();
     const results = searchRecords(records, context, query, options.limit);
     recordRuntimeObservation({
-      name: "memory.items.search",
+      name: "memory.item.search",
       message: "Searched query-indexed memory items.",
       data: {
         store: "file",

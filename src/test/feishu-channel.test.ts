@@ -14,6 +14,7 @@ import {
   isRetryableFeishuError,
   parseFeishuDeliveryContent,
   rememberMessageId,
+  shouldRespondToFeishuMessage,
   toChannelInboundMessage,
 } from "../channels/feishu-channel.js";
 import { clearWorkspaceRoot, setWorkspaceRoot } from "../index.js";
@@ -178,6 +179,47 @@ test("isFeishuBotMentioned detects rich-text post mentions", () => {
           }]],
         },
       }),
+    },
+  }, "ou_bot"), true);
+});
+
+test("shouldRespondToFeishuMessage allows private chats without an explicit mention", () => {
+  assert.equal(shouldRespondToFeishuMessage({
+    message: {
+      message_id: "om_p2p",
+      chat_id: "oc_p2p",
+      chat_type: "p2p",
+      message_type: "text",
+      content: JSON.stringify({ text: "hello" }),
+      mentions: [],
+    },
+  }, "ou_bot"), true);
+});
+
+test("shouldRespondToFeishuMessage requires an explicit mention in group chats", () => {
+  assert.equal(shouldRespondToFeishuMessage({
+    message: {
+      message_id: "om_group_1",
+      chat_id: "oc_group_1",
+      chat_type: "group",
+      message_type: "text",
+      content: JSON.stringify({ text: "hello" }),
+      mentions: [],
+    },
+  }, "ou_bot"), false);
+
+  assert.equal(shouldRespondToFeishuMessage({
+    message: {
+      message_id: "om_group_2",
+      chat_id: "oc_group_2",
+      chat_type: "group",
+      message_type: "text",
+      content: JSON.stringify({ text: "@_user_1 hello" }),
+      mentions: [{
+        key: "@_user_1",
+        id: { open_id: "ou_bot" },
+        name: "Bot",
+      }],
     },
   }, "ou_bot"), true);
 });
