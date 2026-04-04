@@ -1,4 +1,5 @@
 import type { SelectedSkill } from "../skill-registry/types.js";
+import { createJsonMessage } from "../agent/message-content.js";
 import type {
   AgentMessage,
   ModelToolCall,
@@ -102,10 +103,8 @@ function buildToolMessage(
   toolName: string,
   result: ToolResultEnvelope,
 ): AgentMessage {
-  return {
-    role: "tool",
+  return createJsonMessage("tool", result, {
     toolCallId,
     toolName,
-    content: JSON.stringify(result),
-  };
+  });
 }

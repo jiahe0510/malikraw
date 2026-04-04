@@ -1,4 +1,5 @@
 import type { AgentMessage } from "../agent/types.js";
+import { getMessageText } from "../agent/message-content.js";
 
 export type ProviderProfile = "openai" | "deepseek" | "qwen";
 
@@ -46,7 +47,7 @@ export function normalizeMessagesForProfile(
 
   for (const message of messages) {
     if (message.role === "system" || message.role === "developer") {
-      const content = message.content.trim();
+      const content = getMessageText(message).trim();
       if (content) {
         instructionParts.push(content);
       }
@@ -68,7 +69,7 @@ function toTransportMessage(
   message: AgentMessage,
   compatibility: CompatibilityProfile,
 ): TransportMessage | undefined {
-  const content = message.content.trim();
+  const content = getMessageText(message).trim();
   if (!content) {
     return undefined;
   }

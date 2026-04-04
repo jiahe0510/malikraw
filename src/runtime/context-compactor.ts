@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import type { AgentMessage, AgentModel } from "../core/agent/types.js";
+import { createTextMessage, getMessageText } from "../core/agent/message-content.js";
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
 import { readCompactTemplateFile } from "./system-template-context.js";
 
@@ -200,10 +201,7 @@ async function compactHistoryLayers(input: {
     sessionCompact.recentMessages,
     Math.max(256, input.inputBudget - input.systemTokens - estimateTokens(summary)),
   );
-  const compactedMessage: AgentMessage = {
-    role: "user",
-    content: `${COMPACTED_HISTORY_PREFIX}${summary}`,
-  };
+  const compactedMessage: AgentMessage = createTextMessage("user", `${COMPACTED_HISTORY_PREFIX}${summary}`);
 
   return {
     history: summary.trim() ? [compactedMessage, ...recentMessages] : sessionCompact.history,
@@ -272,10 +270,7 @@ function compactHistoryLayersSync(input: {
     sessionCompact.recentMessages,
     Math.max(256, input.inputBudget - input.systemTokens - estimateTokens(summary)),
   );
-  const compactedMessage: AgentMessage = {
-    role: "user",
-    content: `${COMPACTED_HISTORY_PREFIX}${summary}`,
-  };
+  const compactedMessage: AgentMessage = createTextMessage("user", `${COMPACTED_HISTORY_PREFIX}${summary}`);
 
   return {
     history: summary.trim() ? [compactedMessage, ...recentMessages] : sessionCompact.history,
@@ -314,12 +309,9 @@ async function summarizeHistory(
 
   try {
     const response = await input.model.generate({
-      messages: [{
-        role: "system",
-        content: guidance,
-      }, {
-        role: "user",
-        content: [
+      messages: [
+        createTextMessage("system", guidance),
+        createTextMessage("user", [
           `Upcoming user request: ${input.userRequest}`,
           "",
           structuredSummary?.trim()
@@ -328,8 +320,8 @@ async function summarizeHistory(
           structuredSummary?.trim() ? "" : undefined,
           "Conversation history to compress:",
           truncate(renderedHistory, 6000),
-        ].filter(Boolean).join("\n"),
-      }],
+        ].filter(Boolean).join("\n")),
+      ],
       tools: [],
     });
 
@@ -401,10 +393,7 @@ function buildSessionCompactHistory(
     };
   }
 
-  const compactedMessage: AgentMessage = {
-    role: "user",
-    content: `${COMPACTED_HISTORY_PREFIX}${summary}`,
-  };
+  const compactedMessage: AgentMessage = createTextMessage("user", `${COMPACTED_HISTORY_PREFIX}${summary}`);
   const trimmedRecentMessages = trimRecentMessagesToFit(
     recentMessages,
     Math.max(256, availableTokens - estimateMessageTokens(compactedMessage)),
@@ -449,10 +438,7 @@ function buildWholeHistoryCompact(
   }
 
   return {
-    history: [{
-      role: "user",
-      content: `${COMPACTED_HISTORY_PREFIX}${summary}`,
-    }, ...fallbackRecent],
+    history: [createTextMessage("user", `${COMPACTED_HISTORY_PREFIX}${summary}`), ...fallbackRecent],
     summary,
     olderMessages,
     recentMessages: fallbackRecent,
@@ -467,18 +453,18 @@ function buildStructuredSessionSummary(messages: AgentMessage[], userRequest: st
   }
 
   const carriedSummaries = messages
-    .filter((message) => message.role === "user" && message.content.startsWith(COMPACTED_HISTORY_PREFIX))
-    .map((message) => message.content.slice(COMPACTED_HISTORY_PREFIX.length).trim())
+    .filter((message) => message.role === "user" && getMessageText(message).startsWith(COMPACTED_HISTORY_PREFIX))
+    .map((message) => getMessageText(message).slice(COMPACTED_HISTORY_PREFIX.length).trim())
     .filter(Boolean)
     .slice(-2);
   const userTurns = messages
-    .filter((message) => message.role === "user" && !message.content.startsWith(COMPACTED_HISTORY_PREFIX))
-    .map((message) => truncate(cleanInline(message.content), 180))
+    .filter((message) => message.role === "user" && !getMessageText(message).startsWith(COMPACTED_HISTORY_PREFIX))
+    .map((message) => truncate(cleanInline(getMessageText(message)), 180))
     .filter(Boolean)
     .slice(-4);
   const assistantTurns = messages
     .filter((message) => message.role === "assistant")
-    .map((message) => truncate(cleanInline(message.content), 180))
+    .map((message) => truncate(cleanInline(getMessageText(message)), 180))
     .filter(Boolean)
     .slice(-4);
   const toolSummaries = summarizeToolMessages(messages);
@@ -530,7 +516,7 @@ function buildEmergencySummary(
 ): string {
   const recentTranscript = messages
     .slice(-8)
-    .map((message) => `${message.role}: ${truncate(cleanInline(message.content), 220)}`)
+    .map((message) => `${message.role}: ${truncate(cleanInline(getMessageText(message)), 220)}`)
     .join("\n");
 
   return truncate([
@@ -559,21 +545,28 @@ function microCompactHistory(history: AgentMessage[]): {
       return message;
     }
 
-    if (message.role === "tool" && message.content.length > MICRO_TOOL_RESULT_MAX_CHARS) {
+    const content = getMessageText(message);
+    if (message.role === "tool" && content.length > MICRO_TOOL_RESULT_MAX_CHARS) {
       changed = true;
       messagesCompacted += 1;
       return {
-        ...message,
-        content: `${COMPACTED_TOOL_RESULT_PREFIX} ${message.toolName ?? "unknown"} output omitted (${message.content.length} chars).`,
+        ...createTextMessage(
+          message.role,
+          `${COMPACTED_TOOL_RESULT_PREFIX} ${message.toolName ?? "unknown"} output omitted (${content.length} chars).`,
+          { toolCallId: message.toolCallId, toolName: message.toolName },
+        ),
       };
     }
 
-    if ((message.role === "user" || message.role === "assistant") && message.content.length > LONG_TEXT_MESSAGE_MAX_CHARS) {
+    if ((message.role === "user" || message.role === "assistant") && content.length > LONG_TEXT_MESSAGE_MAX_CHARS) {
       changed = true;
       messagesCompacted += 1;
       return {
-        ...message,
-        content: truncate(message.content, LONG_TEXT_MESSAGE_MAX_CHARS),
+        ...createTextMessage(
+          message.role,
+          truncate(content, LONG_TEXT_MESSAGE_MAX_CHARS),
+          { toolCallId: message.toolCallId, toolName: message.toolName },
+        ),
       };
     }
 
@@ -619,7 +612,7 @@ function summarizeToolMessages(messages: AgentMessage[]): string[] {
 
     const toolName = message.toolName ?? "unknown";
     const entry = summaries.get(toolName) ?? { ok: 0, fail: 0 };
-    if (/"ok":false/.test(message.content)) {
+    if (/"ok":false/.test(getMessageText(message))) {
       entry.fail += 1;
     } else {
       entry.ok += 1;
@@ -635,7 +628,7 @@ function summarizeToolMessages(messages: AgentMessage[]): string[] {
 function extractReferences(messages: AgentMessage[]): string[] {
   const references = new Set<string>();
   for (const message of messages) {
-    const matches = message.content.matchAll(/(?:\/[\w./-]+|\bhttps?:\/\/\S+)/g);
+    const matches = getMessageText(message).matchAll(/(?:\/[\w./-]+|\bhttps?:\/\/\S+)/g);
     for (const match of matches) {
       const value = match[0]?.trim();
       if (value) {
@@ -657,7 +650,7 @@ function extractQuestions(messages: AgentMessage[]): string[] {
       continue;
     }
 
-    const matches = message.content.matchAll(/([^?.!\n]{0,180}\?)/g);
+    const matches = getMessageText(message).matchAll(/([^?.!\n]{0,180}\?)/g);
     for (const match of matches) {
       const value = cleanInline(match[1] ?? "");
       if (value) {
@@ -732,7 +725,7 @@ function nextUserBoundary(history: AgentMessage[], start: number): number {
 function findLastUserMessage(messages: AgentMessage[]): string | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === "user") {
-      return messages[index]?.content;
+      return messages[index] ? getMessageText(messages[index]!) : undefined;
     }
   }
 
@@ -743,10 +736,10 @@ function renderCompactedHistory(messages: AgentMessage[]): string {
   return messages
     .map((message) => {
       if (message.role === "tool") {
-        return `tool ${message.toolName ?? "unknown"}: ${truncate(message.content, 400)}`;
+        return `tool ${message.toolName ?? "unknown"}: ${truncate(getMessageText(message), 400)}`;
       }
 
-      return `${message.role}: ${truncate(message.content, 400)}`;
+      return `${message.role}: ${truncate(getMessageText(message), 400)}`;
     })
     .join("\n");
 }
@@ -760,7 +753,7 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 }
 
 function estimateMessageTokens(message: AgentMessage): number {
-  return estimateTokens(`${message.role}:${message.content}`);
+  return estimateTokens(`${message.role}:${getMessageText(message)}`);
 }
 
 function estimateTokens(content: string): number {

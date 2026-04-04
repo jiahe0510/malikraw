@@ -1,4 +1,5 @@
 import { collectQueryContext, finalizeQueryContext, getVisibleToolNames } from "./build-prompt.js";
+import { createTextMessage, getMessageText } from "./message-content.js";
 import { executeToolCalls } from "../tool-registry/tool-orchestrator.js";
 import type {
   AgentLoopEvent,
@@ -107,10 +108,7 @@ export async function* runAgentLoopEvents(
     }
 
     if (modelResponse.type === "final") {
-      const assistantMessage: AgentMessage = {
-        role: "assistant",
-        content: modelResponse.outputText,
-      };
+      const assistantMessage: AgentMessage = createTextMessage("assistant", modelResponse.outputText);
       messages.push(assistantMessage);
       yield {
         type: "final_output",
@@ -129,10 +127,7 @@ export async function* runAgentLoopEvents(
     }
 
     if (modelResponse.assistantMessage) {
-      const assistantMessage: AgentMessage = {
-        role: "assistant",
-        content: modelResponse.assistantMessage,
-      };
+      const assistantMessage: AgentMessage = createTextMessage("assistant", modelResponse.assistantMessage);
       messages.push(assistantMessage);
       yield {
         type: "assistant_message",
@@ -186,7 +181,7 @@ function stringifyHistory(history: AgentMessage[] | undefined): string | undefin
   }
 
   return history
-    .map((message) => `${message.role}: ${message.content}`)
+    .map((message) => `${message.role}: ${getMessageText(message)}`)
     .join("\n");
 }
 

@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { getMalikrawHomeDirectory } from "../core/config/config-store.js";
+import { createTextMessage, getMessageText } from "../core/agent/message-content.js";
 import type { AgentMessage } from "../core/agent/types.js";
 import { readJsonFile, withFileLock, writeJsonFileAtomic } from "../memory/file-store.js";
 import type { ChannelSession } from "./channel.js";
@@ -109,8 +110,9 @@ function buildSummaryMessage(
   const lines: string[] = [];
 
   for (const message of messages) {
-    if (message.role === "assistant" && message.content.startsWith(`${SUMMARY_PREFIX}\n`)) {
-      carriedSummaries.push(message.content.slice(`${SUMMARY_PREFIX}\n`.length).trim());
+    const content = getMessageText(message);
+    if (message.role === "assistant" && content.startsWith(`${SUMMARY_PREFIX}\n`)) {
+      carriedSummaries.push(content.slice(`${SUMMARY_PREFIX}\n`.length).trim());
       continue;
     }
 
@@ -132,18 +134,15 @@ function buildSummaryMessage(
     return undefined;
   }
 
-  return {
-    role: "user",
-    content: `${COMPACTED_HISTORY_PREFIX}\n${trimmedBody}`,
-  };
+  return createTextMessage("user", `${COMPACTED_HISTORY_PREFIX}\n${trimmedBody}`);
 }
 
 function renderSummaryLine(message: AgentMessage): string {
-  return `${message.role}: ${truncate(message.content, 240)}`;
+  return `${message.role}: ${truncate(getMessageText(message), 240)}`;
 }
 
 function renderToolSummaryLine(message: AgentMessage): string {
-  return `tool ${message.toolName ?? "unknown"}: ${truncate(summarizeToolContent(message.content), 120)}`;
+  return `tool ${message.toolName ?? "unknown"}: ${truncate(summarizeToolContent(getMessageText(message)), 120)}`;
 }
 
 function truncate(value: string, maxLength: number): string {
@@ -162,7 +161,7 @@ function findRecentSplitIndex(messages: AgentMessage[], maxRecentMessages: numbe
 }
 
 function estimateHistoryChars(messages: AgentMessage[]): number {
-  return messages.reduce((total, message) => total + message.content.length, 0);
+  return messages.reduce((total, message) => total + getMessageText(message).length, 0);
 }
 
 function summarizeToolContent(content: string): string {

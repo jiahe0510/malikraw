@@ -1,5 +1,6 @@
 import { injectSkillPromptBlocks } from "../skill-registry/render-skill-prompt.js";
 import type { PromptMessage } from "../skill-registry/types.js";
+import { createTextMessage, getMessageText } from "./message-content.js";
 import type { AgentMessage, AgentPromptInput, BuiltPrompt, QueryContext } from "./types.js";
 
 const LEGACY_SESSION_SUMMARY_PREFIX = "[session_summary]\n";
@@ -42,16 +43,10 @@ export function finalizeQueryContext(context: QueryContext): BuiltPrompt {
   const userContextReminder = buildUserContextReminder(context);
 
   const messages: AgentMessage[] = [
-    ...instructionMessages,
-    ...(userContextReminder ? [{
-      role: "user" as const,
-      content: userContextReminder,
-    }] : []),
+    ...instructionMessages.map((message) => createTextMessage(message.role, message.content)),
+    ...(userContextReminder ? [createTextMessage("user", userContextReminder)] : []),
     ...context.history,
-    {
-      role: "user",
-      content: context.userRequest,
-    },
+    createTextMessage("user", context.userRequest),
   ];
 
   return {
@@ -78,14 +73,14 @@ function appendSystemContext(
       return message;
     }
 
-    if (!message.content.startsWith("Runtime Context")) {
+    if (!getMessageText(message).startsWith("Runtime Context")) {
       return message;
     }
 
     return {
       ...message,
       content: [
-        message.content,
+        getMessageText(message),
         "- System context:",
         ...systemContextLines.map((line) => `  - ${line}`),
       ].join("\n"),
@@ -177,10 +172,10 @@ function toContextLines(context: Record<string, string | undefined>): string[] {
 function normalizeCompactedHistory(history: AgentMessage[]): AgentMessage[] {
   return history.map((message) => {
     if (message.role === "assistant" && message.content.startsWith(LEGACY_SESSION_SUMMARY_PREFIX)) {
-      return {
-        role: "user" as const,
-        content: `${COMPACTED_HISTORY_PREFIX}${message.content.slice(LEGACY_SESSION_SUMMARY_PREFIX.length).trim()}`,
-      };
+      return createTextMessage(
+        "user",
+        `${COMPACTED_HISTORY_PREFIX}${message.content.slice(LEGACY_SESSION_SUMMARY_PREFIX.length).trim()}`,
+      );
     }
 
     return message;

@@ -3,9 +3,21 @@ import type { ModelToolDefinition, ToolResultEnvelope } from "../tool-registry/t
 
 export type MessageRole = PromptRole | "user" | "assistant" | "tool";
 
+export type AgentContentBlock =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "json";
+      data: unknown;
+      text?: string;
+    };
+
 export type AgentMessage = {
   role: MessageRole;
   content: string;
+  contentBlocks?: AgentContentBlock[];
   toolCallId?: string;
   toolName?: string;
 };

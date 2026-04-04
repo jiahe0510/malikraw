@@ -1,11 +1,12 @@
 import type { AgentLoopEvent } from "../core/agent/types.js";
+import { getMessageText } from "../core/agent/message-content.js";
 
 export function formatRuntimeEvent(event: AgentLoopEvent): string | undefined {
   switch (event.type) {
     case "prompt_ready":
       return `Preparing prompt and tools (${event.visibleToolNames.length} visible)`;
     case "assistant_message":
-      return truncate(event.message.content, 160);
+      return truncate(getMessageText(event.message), 160);
     case "tool_result":
       return event.result.ok
         ? `Tool ${event.result.toolName} finished`

@@ -94,6 +94,7 @@ read before edit`));
 
   assert.equal(prompt.messages[0]?.role, "system");
   assert.equal(prompt.messages[0]?.content, "global policy");
+  assert.deepEqual(prompt.messages[0]?.contentBlocks, [{ type: "text", text: "global policy" }]);
   assert.equal(prompt.messages[1]?.role, "system");
   assert.match(prompt.messages[1]?.content ?? "", /Identity/);
   assert.equal(prompt.messages[2]?.role, "system");
@@ -494,5 +495,6 @@ test("runAgentLoopEvents yields prompt, assistant, tool, and final events in ord
   assert.equal(events[2]?.type, "tool_result");
   if (events[2]?.type === "tool_result") {
     assert.equal(events[2].message.toolName, "lookup_status");
+    assert.equal(events[2].message.contentBlocks?.[0]?.type, "json");
   }
 });

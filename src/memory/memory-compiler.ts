@@ -1,3 +1,4 @@
+import { getMessageText } from "../core/agent/message-content.js";
 import type { RetrievedMemory, SessionTaskState } from "./types.js";
 
 export function compileRelevantMemoryBlock(
@@ -36,7 +37,7 @@ export function compileRelevantMemoryBlock(
 
   const recentMessages = input.sessionState?.state.recentMessages
     .slice(-4)
-    .map((message) => `- ${message.role}: ${truncate(message.content, 120)}`) ?? [];
+    .map((message) => `- ${message.role}: ${truncate(getMessageText(message), 120)}`) ?? [];
   if (recentMessages.length > 0) {
     lines.push("");
     lines.push("Recent session messages:");

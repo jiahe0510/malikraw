@@ -3,7 +3,7 @@ import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 
 import { loadRuntimeConfig } from "./core/config/agent-config.js";
-import { Gateway, createAgentRuntime, type ChannelDelivery, type GatewayChannel } from "./index.js";
+import { formatRuntimeEvent, Gateway, createAgentRuntime, type ChannelDelivery, type GatewayChannel } from "./index.js";
 
 export async function runTui(): Promise<void> {
   const config = loadRuntimeConfig();
@@ -49,6 +49,14 @@ export async function runTui(): Promise<void> {
 function createTuiChannel(): GatewayChannel {
   return {
     id: "tui",
+    handleRuntimeEvent: ({ event }) => {
+      const formatted = formatRuntimeEvent(event);
+      if (!formatted) {
+        return;
+      }
+
+      console.log(`[progress] ${formatted}`);
+    },
     sendMessage: (delivery: ChannelDelivery) => {
       console.log("");
       console.log(delivery.content);
