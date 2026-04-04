@@ -5,6 +5,7 @@ export * from "./core/agent/index.js";
 export * from "./core/config/agent-config.js";
 export * from "./core/config/config-store.js";
 export * from "./core/providers/index.js";
+export * from "./core/observability/observability.js";
 export * from "./integrations/openai-compatible-model.js";
 export * from "./channels/index.js";
 export * from "./gateway/index.js";

@@ -40,11 +40,7 @@ test("loadRuntimeConfig keeps memory config without embedding options", async ()
         channels: [],
       },
       tools: {},
-      memory: {
-        enabled: true,
-        sessionRecentMessages: 10,
-        episodicTopK: 5,
-      },
+      memory: {},
       agents: {
         defaultAgentId: "main",
         agents: [{
@@ -56,8 +52,7 @@ test("loadRuntimeConfig keeps memory config without embedding options", async ()
     });
 
     const config = loadRuntimeConfig();
-    assert.equal(config.memory?.sessionRecentMessages, 10);
-    assert.equal(config.memory?.episodicTopK, 5);
+    assert.deepEqual(config.memory, {});
   } finally {
     if (previousHome === undefined) {
       delete process.env.MALIKRAW_HOME;

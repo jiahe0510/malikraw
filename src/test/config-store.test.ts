@@ -33,8 +33,6 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
           contextWindow: 16384,
           maxTokens: 2048,
           compact: {
-            thresholdTokens: 9000,
-            targetTokens: 4500,
             instructionPath: "/tmp/compact.md",
           },
         }],
@@ -66,14 +64,7 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
       tools: {
         braveSearchApiKey: "brave-key",
       },
-      memory: {
-        enabled: true,
-        sessionRecentMessages: 6,
-        semanticTopK: 4,
-        episodicTopK: 3,
-        maxPromptChars: 1500,
-        importanceThreshold: 0.7,
-      },
+      memory: {},
       agents: {
         defaultAgentId: "primary",
         agents: [{
@@ -92,8 +83,8 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
     assert.equal(config.model.temperature, 0.3);
     assert.equal(config.model.contextWindow, 16384);
     assert.equal(config.model.maxTokens, 2048);
-    assert.equal(config.model.compact.thresholdTokens, 9000);
-    assert.equal(config.model.compact.targetTokens, 4500);
+    assert.equal(config.model.compact.thresholdTokens, 11315);
+    assert.equal(config.model.compact.targetTokens, 6789);
     assert.equal(config.model.compact.instructionPath, "/tmp/compact.md");
     assert.equal(config.workspaceRoot, path.join(malikrawHome, "workspace"));
     assert.deepEqual(config.activeSkillIds, ["workspace_operator", "reviewer"]);
@@ -103,8 +94,7 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
     assert.equal(config.maxIterations, undefined);
     assert.equal(config.debugModelMessages, false);
     assert.equal(config.gatewayPort, 6060);
-    assert.equal(config.memory?.enabled, true);
-    assert.equal(config.memory?.sessionRecentMessages, 6);
+    assert.deepEqual(config.memory, {});
     assert.equal(config.defaultAgentId, "primary");
     assert.deepEqual(config.channels, [{
       id: "http",
@@ -130,8 +120,8 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
         contextWindow: 16384,
         maxTokens: 2048,
         compact: {
-          thresholdTokens: 9000,
-          targetTokens: 4500,
+          thresholdTokens: 11315,
+          targetTokens: 6789,
           instructionPath: "/tmp/compact.md",
         },
       },
@@ -190,9 +180,7 @@ test("loadRuntimeConfig ignores OPENAI environment variables and uses stored con
         }],
       },
       tools: {},
-      memory: {
-        enabled: false,
-      },
+      memory: {},
       agents: {
         defaultAgentId: "primary",
         agents: [{
@@ -236,7 +224,7 @@ test("loadRuntimeConfig ignores OPENAI environment variables and uses stored con
   }
 });
 
-test("loadRuntimeConfig accepts local enhanced memory without database URLs", async () => {
+test("loadRuntimeConfig always enables local memory without database URLs", async () => {
   const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-home-"));
   const previousHome = process.env.MALIKRAW_HOME;
   process.env.MALIKRAW_HOME = malikrawHome;
@@ -277,8 +265,6 @@ test("loadRuntimeConfig accepts local enhanced memory without database URLs", as
       },
       tools: {},
       memory: {
-        enabled: true,
-        sessionRecentMessages: 5,
       },
       agents: {
         defaultAgentId: "primary",
@@ -291,8 +277,7 @@ test("loadRuntimeConfig accepts local enhanced memory without database URLs", as
     });
 
     const config = loadRuntimeConfig();
-    assert.equal(config.memory?.enabled, true);
-    assert.equal(config.memory?.sessionRecentMessages, 5);
+    assert.deepEqual(config.memory, {});
   } finally {
     if (previousHome === undefined) {
       delete process.env.MALIKRAW_HOME;

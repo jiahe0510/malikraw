@@ -7,7 +7,7 @@ import { MemoryRetriever } from "./memory-retriever.js";
 import { MemoryWriter } from "./memory-writer.js";
 import { FileBackedSessionStateStore } from "./session-store.js";
 import { FileBackedToolChainMemoryStore } from "./tool-chain-store.js";
-import type { MemoryConfig, MemoryRetrieveInput, MemoryService, MemoryWriteInput } from "./types.js";
+import type { MemoryRetrieveInput, MemoryService, MemoryWriteInput } from "./types.js";
 
 export class DefaultMemoryService implements MemoryService {
   constructor(
@@ -51,65 +51,10 @@ export class DefaultMemoryService implements MemoryService {
   }
 }
 
-export class NoopMemoryService implements MemoryService {
-  async retrieve(input: MemoryRetrieveInput) {
-    return {
-      sessionState: undefined,
-      memoryItems: [],
-      toolChains: [],
-      compiledBlock: "",
-      observations: {
-        memoryItemsWritten: 0,
-        toolChainsWritten: 0,
-        memoryItemsRetrieved: 0,
-        toolChainsRetrieved: 0,
-        compiledChars: 0,
-        estimatedTokens: 0,
-      },
-    };
-  }
-
-  async write(input: MemoryWriteInput) {
-    return {
-      sessionState: {
-        sessionId: input.context.sessionId,
-        userId: input.context.userId,
-        agentId: input.context.agentId,
-        projectId: input.context.projectId,
-        state: {
-          recentMessages: input.sessionMessages,
-          taskState: input.currentTaskState ?? {
-            currentPlan: [],
-            completedSteps: [],
-            openQuestions: [],
-            status: "active",
-            updatedAt: new Date().toISOString(),
-          },
-        },
-        updatedAt: new Date().toISOString(),
-      },
-      memoryItemsWritten: 0,
-      toolChainsWritten: 0,
-      observations: {
-        memoryItemsWritten: 0,
-        toolChainsWritten: 0,
-        memoryItemsRetrieved: 0,
-        toolChainsRetrieved: 0,
-        compiledChars: 0,
-        estimatedTokens: 0,
-      },
-    };
-  }
-}
-
 export function createMemoryService(
-  config: MemoryConfig | undefined,
+  _config: unknown,
   modelConfig: OpenAICompatibleConfig,
 ): MemoryService {
-  if (!config?.enabled) {
-    return new NoopMemoryService();
-  }
-
   const sessionStore = new FileBackedSessionStateStore();
   const memoryItemStore = new FileBackedMemoryItemStore();
   const toolChainStore = new FileBackedToolChainMemoryStore();
@@ -126,13 +71,12 @@ export function createMemoryService(
     : new HeuristicEpisodeExtractor();
 
   return new DefaultMemoryService(
-    new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, config),
+    new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, modelConfig),
     new MemoryWriter(
       sessionStore,
       memoryItemStore,
       toolChainStore,
       episodeExtractor,
-      config,
     ),
   );
 }

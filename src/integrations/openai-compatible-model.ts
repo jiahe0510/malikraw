@@ -6,6 +6,7 @@ import type {
   ModelTurnResponse,
 } from "../core/agent/types.js";
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
+import { recordRuntimeObservation } from "../core/observability/observability.js";
 import {
   normalizeMessagesForProfile,
   type TransportContentPart,
@@ -65,10 +66,17 @@ export class OpenAICompatibleModel implements AgentModel {
 
   async generate(input: AgentModelRequest): Promise<ModelTurnResponse> {
     const requestBody = buildRequestBody(this.config, input);
-    if (input.debug) {
-      console.error("[model-request]");
-      console.error(JSON.stringify(requestBody, null, 2));
-    }
+    recordRuntimeObservation({
+      name: "llm.request.start",
+      message: "Started model request.",
+      data: {
+        model: this.config.model,
+        profile: this.config.profile ?? "openai",
+        messageCount: requestBody.messages.length,
+        toolCount: requestBody.tools?.length ?? 0,
+        request: input.debug ? requestBody : summarizeRequestBody(requestBody),
+      },
+    });
 
     const response = await fetch(buildChatCompletionsUrl(this.config.baseURL), {
       method: "POST",
@@ -81,6 +89,18 @@ export class OpenAICompatibleModel implements AgentModel {
 
     if (!response.ok) {
       const body = await response.text();
+      recordRuntimeObservation({
+        name: "llm.request.fail",
+        level: "error",
+        message: "Model request failed.",
+        data: {
+          model: this.config.model,
+          profile: this.config.profile ?? "openai",
+          status: response.status,
+          contextLengthExceeded: looksLikeContextLengthFailure(response.status, body),
+          responseBody: body,
+        },
+      });
       throw new ModelRequestError({
         status: response.status,
         responseBody: body,
@@ -89,10 +109,16 @@ export class OpenAICompatibleModel implements AgentModel {
     }
 
     const payload = await response.json() as OpenAIChatCompletionResponse;
-    if (input.debug) {
-      console.error("[model-response]");
-      console.error(JSON.stringify(payload, null, 2));
-    }
+    recordRuntimeObservation({
+      name: "llm.request.success",
+      message: "Model request completed.",
+      data: {
+        model: this.config.model,
+        profile: this.config.profile ?? "openai",
+        choices: payload.choices.length,
+        response: input.debug ? payload : summarizeResponsePayload(payload),
+      },
+    });
     const choice = payload.choices[0];
     if (!choice) {
       throw new Error("Model response did not include any choices.");
@@ -218,4 +244,36 @@ function looksLikePlanningPreamble(paragraph: string): boolean {
     /^first[, ]/,
   ].some((pattern) => pattern.test(normalized))
     || (normalized.includes("system context") && normalized.includes("user"));
+}
+
+function summarizeRequestBody(request: OpenAIChatCompletionRequest): Record<string, unknown> {
+  return {
+    model: request.model,
+    messageCount: request.messages.length,
+    toolCount: request.tools?.length ?? 0,
+    roles: request.messages.map((message) => message.role),
+    lastMessage: summarizeTransportContent(request.messages.at(-1)?.content),
+  };
+}
+
+function summarizeResponsePayload(payload: OpenAIChatCompletionResponse): Record<string, unknown> {
+  const first = payload.choices[0]?.message;
+  return {
+    choices: payload.choices.length,
+    hasToolCalls: Boolean(first?.tool_calls?.length),
+    toolCallCount: first?.tool_calls?.length ?? 0,
+    content: summarizeTransportContent(first?.content),
+  };
+}
+
+function summarizeTransportContent(content: string | TransportContentPart[] | null | undefined): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!content || content.length === 0) {
+    return "";
+  }
+
+  return content.map((part) => part.text).join("\n");
 }

@@ -182,14 +182,7 @@ export type MemoryWriteResult = {
   observations: MemoryObservations;
 };
 
-export type MemoryConfig = {
-  enabled: boolean;
-  sessionRecentMessages: number;
-  semanticTopK: number;
-  episodicTopK: number;
-  maxPromptChars: number;
-  importanceThreshold: number;
-};
+export type MemoryConfig = Record<string, never>;
 
 export interface SessionStateStore {
   read(context: MemoryContext): Promise<SessionStateRecord | undefined>;

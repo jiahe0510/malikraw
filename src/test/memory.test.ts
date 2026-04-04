@@ -14,15 +14,6 @@ import { InMemorySessionStateStore } from "../memory/session-store.js";
 import { InMemoryToolChainMemoryStore } from "../memory/tool-chain-store.js";
 import { createMemorySearchTool } from "../tools/search-memory.js";
 
-const memoryConfig = {
-  enabled: true,
-  sessionRecentMessages: 4,
-  semanticTopK: 6,
-  episodicTopK: 4,
-  maxPromptChars: 800,
-  importanceThreshold: 0.65,
-} as const;
-
 test("heuristic semantic extractor keeps stable preferences and constraints only", () => {
   const facts = extractSemanticHeuristically({
     context: {
@@ -52,7 +43,6 @@ test("memory writer persists session state and query-indexed memory items", asyn
     memoryItemStore,
     toolChainStore,
     new HeuristicEpisodeExtractor(),
-    memoryConfig,
   );
 
   const input = {
@@ -104,7 +94,6 @@ test("memory writer stores compaction summaries as query-indexed memory items", 
     memoryItemStore,
     toolChainStore,
     new HeuristicEpisodeExtractor(),
-    memoryConfig,
   );
 
   await writer.write({
@@ -190,7 +179,17 @@ test("memory retriever compiles query memory and tool chains into one block", as
     ],
   });
 
-  const retriever = new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, memoryConfig);
+  const retriever = new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, {
+    baseURL: "https://example.invalid/v1",
+    apiKey: "dummy",
+    model: "test-model",
+    contextWindow: 8192,
+    maxTokens: 1024,
+    compact: {
+      thresholdTokens: 4096,
+      targetTokens: 2048,
+    },
+  });
   const result = await retriever.retrieve({
     context,
     query: "How should we implement memory?",
@@ -286,9 +285,13 @@ test("compileRelevantMemoryBlock enforces a prompt budget", () => {
       compiledChars: 0,
       estimatedTokens: 0,
     },
-  }, 120);
+  }, {
+    query: "preferred answer style",
+    contextWindow: 2048,
+    maxTokens: 1024,
+  });
 
-  assert.ok(block.length <= 120);
+  assert.ok(block.length <= 600);
 });
 
 test("memory writer stores one tool chain per user query", async () => {
@@ -305,7 +308,6 @@ test("memory writer stores one tool chain per user query", async () => {
     memoryItemStore,
     toolChainStore,
     new HeuristicEpisodeExtractor(),
-    memoryConfig,
   );
 
   const startedAt = new Date().toISOString();

@@ -8,7 +8,7 @@ Minimal agent runtime with:
 - workspace-backed agent prompt context
 - channel-based gateway routing
 - explicit message/media dispatch tool
-- file-backed enhanced memory
+- file-backed local memory
 
 ## Requirements
 
@@ -195,13 +195,13 @@ Runtime observability files are stored under:
 - `~/.malikraw/log/runtime.log`
 - `~/.malikraw/event/runtime.jsonl`
 
-## Enhanced Memory
+## Memory
 
-Enhanced memory is local-only.
+Memory is local-only and always enabled.
 
 ### What The Local Store Does
 
-Malikraw stores memory under `MALIKRAW_HOME/.runtime/memory` as local JSON files.
+Malikraw stores memory under `MALIKRAW_HOME/state/memory` as local JSON files.
 
 It keeps:
 
@@ -232,7 +232,7 @@ Current session-history compression now has two layers:
   - conservative fallback based on message count and char size
 - runtime prompt compaction
   - provider-driven, based on estimated token budget and model context settings
-  - uses `contextWindow`, `maxTokens`, and `compact.thresholdTokens`
+  - derives compact thresholds from `contextWindow` and `maxTokens`
   - only compresses prior conversation history
   - does not compress the system prompt
 

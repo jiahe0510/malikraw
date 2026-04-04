@@ -44,7 +44,7 @@ export class FileBackedSessionStateStore implements SessionStateStore {
 }
 
 export function getMemoryStoreDirectory(): string {
-  return path.join(getMalikrawHomeDirectory(), ".runtime", "memory");
+  return path.join(getMalikrawHomeDirectory(), "state", "memory");
 }
 
 function buildSessionStateKey(context: Pick<MemoryContext, "sessionId" | "agentId" | "userId">): string {

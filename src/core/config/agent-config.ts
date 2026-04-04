@@ -32,7 +32,7 @@ export type RuntimeConfig = {
   maxIterations?: number;
   debugModelMessages: boolean;
   gatewayPort: number;
-  memory?: MemoryConfig;
+  memory: MemoryConfig;
 };
 
 export type RuntimeAgentConfig = {
@@ -58,10 +58,8 @@ export function loadRuntimeConfig(): RuntimeConfig {
       contextWindow: providerConfig.contextWindow ?? 32_768,
       maxTokens: providerConfig.maxTokens ?? 4096,
       compact: {
-        thresholdTokens: providerConfig.compact?.thresholdTokens
-          ?? defaultCompactThreshold(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
-        targetTokens: providerConfig.compact?.targetTokens
-          ?? defaultCompactTarget(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
+        thresholdTokens: defaultCompactThreshold(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
+        targetTokens: defaultCompactTarget(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
         instructionPath: providerConfig.compact?.instructionPath?.trim() || undefined,
       },
     },
@@ -200,8 +198,6 @@ function toModelConfig(providerConfig: {
   contextWindow?: number;
   maxTokens?: number;
   compact?: {
-    thresholdTokens?: number;
-    targetTokens?: number;
     instructionPath?: string;
   };
 }): OpenAICompatibleConfig {
@@ -216,34 +212,23 @@ function toModelConfig(providerConfig: {
     contextWindow,
     maxTokens,
     compact: {
-      thresholdTokens: providerConfig.compact?.thresholdTokens
-        ?? defaultCompactThreshold(contextWindow, maxTokens),
-      targetTokens: providerConfig.compact?.targetTokens
-        ?? defaultCompactTarget(contextWindow, maxTokens),
+      thresholdTokens: defaultCompactThreshold(contextWindow, maxTokens),
+      targetTokens: defaultCompactTarget(contextWindow, maxTokens),
       instructionPath: providerConfig.compact?.instructionPath?.trim() || undefined,
     },
   };
 }
 
 function defaultCompactThreshold(contextWindow: number, maxTokens: number): number {
-  return Math.min(12_000, Math.max(1024, contextWindow - maxTokens - 1024));
+  const availableInput = Math.max(1024, contextWindow - maxTokens - 1024);
+  return Math.max(1024, Math.floor(availableInput * 0.85));
 }
 
 function defaultCompactTarget(contextWindow: number, maxTokens: number): number {
   return Math.max(768, Math.floor(defaultCompactThreshold(contextWindow, maxTokens) * 0.6));
 }
 
-function normalizeMemoryConfig(stored: StoredMemoryConfig | undefined): MemoryConfig | undefined {
-  if (!stored) {
-    return undefined;
-  }
-
-  return {
-    enabled: stored.enabled,
-    sessionRecentMessages: stored.sessionRecentMessages ?? 8,
-    semanticTopK: stored.semanticTopK ?? 6,
-    episodicTopK: stored.episodicTopK ?? 4,
-    maxPromptChars: stored.maxPromptChars ?? 2000,
-    importanceThreshold: stored.importanceThreshold ?? 0.65,
-  };
+function normalizeMemoryConfig(stored: StoredMemoryConfig | undefined): MemoryConfig {
+  void stored;
+  return {};
 }

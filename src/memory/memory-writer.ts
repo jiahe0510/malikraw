@@ -1,6 +1,5 @@
 import type {
   EpisodeExtractor,
-  MemoryConfig,
   MemoryItemStore,
   MemoryWriteInput,
   MemoryWriteResult,
@@ -11,26 +10,27 @@ import type {
   ToolChainStep,
 } from "./types.js";
 
+const MEMORY_IMPORTANCE_THRESHOLD = 0.65;
+
 export class MemoryWriter {
   constructor(
     private readonly sessionStore: SessionStateStore,
     private readonly memoryItemStore: MemoryItemStore,
     private readonly toolChainStore: ToolChainMemoryStore,
     private readonly episodeExtractor: EpisodeExtractor,
-    private readonly config: MemoryConfig,
   ) {}
 
   async write(input: MemoryWriteInput): Promise<MemoryWriteResult> {
-    const sessionState = buildSessionState(input, this.config.sessionRecentMessages);
+    const sessionState = buildSessionState(input);
     await this.sessionStore.write(sessionState);
 
     const extracted = await this.episodeExtractor.extract(input);
     const content = buildMemoryItemContent(input, extracted?.summary);
     const importance = input.compaction?.summary
-      ? Math.max(this.config.importanceThreshold, 0.85)
+      ? Math.max(MEMORY_IMPORTANCE_THRESHOLD, 0.85)
       : extracted?.importance ?? (input.toolResults.length > 0 ? 0.8 : 0.6);
     const confidence = extracted?.confidence ?? 0.75;
-    const shouldStoreMemoryItem = importance >= this.config.importanceThreshold;
+    const shouldStoreMemoryItem = importance >= MEMORY_IMPORTANCE_THRESHOLD;
     if (shouldStoreMemoryItem) {
       await this.memoryItemStore.insert(input.context, {
         query: input.userMessage,
@@ -68,7 +68,7 @@ export class MemoryWriter {
   }
 }
 
-function buildSessionState(input: MemoryWriteInput, recentMessageLimit: number): SessionStateRecord {
+function buildSessionState(input: MemoryWriteInput): SessionStateRecord {
   const now = new Date().toISOString();
   return {
     sessionId: input.context.sessionId,
@@ -76,7 +76,7 @@ function buildSessionState(input: MemoryWriteInput, recentMessageLimit: number):
     agentId: input.context.agentId,
     projectId: input.context.projectId,
     state: {
-      recentMessages: input.sessionMessages.slice(-recentMessageLimit),
+      recentMessages: input.sessionMessages,
       taskState: input.currentTaskState ?? deriveTaskState(input, now),
     },
     updatedAt: now,

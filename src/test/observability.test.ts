@@ -126,12 +126,15 @@ test("observability writes memory search and retrieve events", async () => {
 
     const service = new DefaultMemoryService(
       new MemoryRetriever(sessionStore, itemStore, toolChainStore, {
-        enabled: true,
-        sessionRecentMessages: 4,
-        semanticTopK: 4,
-        episodicTopK: 4,
-        maxPromptChars: 800,
-        importanceThreshold: 0.7,
+        baseURL: "https://example.invalid/v1",
+        apiKey: "dummy",
+        model: "test-model",
+        contextWindow: 8192,
+        maxTokens: 1024,
+        compact: {
+          thresholdTokens: 4096,
+          targetTokens: 2048,
+        },
       }),
       {
         write: async () => ({

@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import {
   createTextMessage,
+  getRuntimeEventFilePath,
   ModelRequestError,
   OpenAICompatibleModel,
   type AgentMessage,
@@ -173,5 +177,55 @@ test("OpenAICompatibleModel marks context-length failures", async () => {
     );
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("OpenAICompatibleModel writes llm request events", async () => {
+  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-llm-events-"));
+  const previousHome = process.env.MALIKRAW_HOME;
+  const originalFetch = globalThis.fetch;
+  process.env.MALIKRAW_HOME = malikrawHome;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: "ok",
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  try {
+    const model = new OpenAICompatibleModel({
+      baseURL: "https://example.invalid/v1",
+      apiKey: "dummy",
+      model: "test-model",
+      contextWindow: 8192,
+      compact: {
+        thresholdTokens: 4096,
+        targetTokens: 2048,
+      },
+    });
+
+    await model.generate({
+      messages: [{ role: "user", content: "hi" } satisfies AgentMessage],
+      tools: [],
+    });
+
+    const eventNames = (await readFile(getRuntimeEventFilePath(), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).name);
+    assert.ok(eventNames.includes("llm.request.start"));
+    assert.ok(eventNames.includes("llm.request.success"));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousHome === undefined) {
+      delete process.env.MALIKRAW_HOME;
+    } else {
+      process.env.MALIKRAW_HOME = previousHome;
+    }
   }
 });

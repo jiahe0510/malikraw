@@ -14,7 +14,6 @@ export type StoredSystemConfig = {
 };
 
 export type StoredMemoryConfig = {
-  enabled: boolean;
   sessionRecentMessages?: number;
   semanticTopK?: number;
   episodicTopK?: number;
@@ -32,8 +31,6 @@ export type StoredProviderConfig = {
   contextWindow?: number;
   maxTokens?: number;
   compact?: {
-    thresholdTokens?: number;
-    targetTokens?: number;
     instructionPath?: string;
   };
 };

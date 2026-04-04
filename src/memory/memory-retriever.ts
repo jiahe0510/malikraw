@@ -1,7 +1,7 @@
 import { compileRelevantMemoryBlock } from "./memory-compiler.js";
 import { recordRuntimeObservation } from "../core/observability/observability.js";
+import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
 import type {
-  MemoryConfig,
   MemoryItemStore,
   MemoryRetrieveInput,
   RetrievedMemory,
@@ -14,7 +14,7 @@ export class MemoryRetriever {
     private readonly sessionStore: SessionStateStore,
     private readonly memoryItemStore: MemoryItemStore,
     private readonly toolChainStore: ToolChainMemoryStore,
-    private readonly config: MemoryConfig,
+    private readonly modelConfig: OpenAICompatibleConfig,
   ) {}
 
   async retrieve(input: MemoryRetrieveInput): Promise<RetrievedMemory> {
@@ -37,7 +37,11 @@ export class MemoryRetriever {
         estimatedTokens: 0,
       },
     };
-    const compiledBlock = compileRelevantMemoryBlock(base, this.config.maxPromptChars);
+    const compiledBlock = compileRelevantMemoryBlock(base, {
+      query: input.query,
+      contextWindow: this.modelConfig.contextWindow,
+      maxTokens: this.modelConfig.maxTokens ?? 4096,
+    });
     const compiledChars = compiledBlock.length;
 
     return {
@@ -60,13 +64,13 @@ export class MemoryRetriever {
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
         projectId: input.context.projectId ?? "-",
-        limit: this.config.episodicTopK,
+        limit: 4,
         query: truncate(input.query, 400),
       },
     });
 
     const memoryItems = await this.memoryItemStore.searchRelevant(input.context, input.query, {
-      limit: this.config.episodicTopK,
+      limit: 4,
     });
 
     recordRuntimeObservation({
@@ -85,7 +89,7 @@ export class MemoryRetriever {
   }
 
   private async searchToolChains(input: MemoryRetrieveInput) {
-    const limit = Math.min(3, this.config.episodicTopK);
+    const limit = 3;
     recordRuntimeObservation({
       name: "memory.search.tool_chain.start",
       message: "Searching reusable tool chains.",

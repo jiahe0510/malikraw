@@ -25,8 +25,6 @@ import { promptMultiSelect, promptSelectWithDefault, promptText } from "./termin
 
 type ChannelSelection = "http" | "feishu";
 type ExistingMultiValue = "__use_existing__";
-type MemoryMode = "default" | "enhanced";
-type MemorySelection = MemoryMode | "__existing__";
 type ProviderSelection = ProviderProfile | "__existing__";
 type MultiSelectResult<T extends string> = {
   selectedValues: T[];
@@ -155,14 +153,6 @@ async function collectProvider(existingProvider: StoredProviderConfig | undefine
       String(existingProvider?.maxTokens ?? 4096),
     ),
     compact: {
-      thresholdTokens: await promptRequiredNumber(
-        "Compact threshold tokens",
-        String(existingProvider?.compact?.thresholdTokens ?? 12000),
-      ),
-      targetTokens: await promptRequiredNumber(
-        "Compact target tokens",
-        String(existingProvider?.compact?.targetTokens ?? 7200),
-      ),
       instructionPath: emptyToUndefined(
         await promptText(
           "Compact instruction path",
@@ -332,58 +322,9 @@ async function collectToolsConfig(existingTools: StoredToolsConfig | undefined):
 }
 
 async function collectMemoryConfig(
-  existingMemory: StoredMemoryConfig | undefined,
+  _existingMemory: StoredMemoryConfig | undefined,
 ): Promise<StoredMemoryConfig> {
-  const selectedMode = await promptSelectWithDefault<MemorySelection>(
-    "Select memory mode",
-    [
-      { label: "Default", value: "default" },
-      { label: "Enhanced", value: "enhanced" },
-      ...(existingMemory ? [{ label: "Use existing memory config", value: "__existing__" as const }] : []),
-    ],
-    existingMemory ? "__existing__" : "default",
-  );
-
-  if (selectedMode === "__existing__" && existingMemory) {
-    return existingMemory;
-  }
-
-  const enableEnhanced = selectedMode === "enhanced";
-
-  if (!enableEnhanced) {
-    return {
-      enabled: false,
-      sessionRecentMessages: existingMemory?.sessionRecentMessages,
-      semanticTopK: existingMemory?.semanticTopK,
-      episodicTopK: existingMemory?.episodicTopK,
-      maxPromptChars: existingMemory?.maxPromptChars,
-      importanceThreshold: existingMemory?.importanceThreshold,
-    };
-  }
-
-  return {
-    enabled: true,
-    sessionRecentMessages: await promptRequiredNumber(
-      "Session recent messages",
-      String(existingMemory?.sessionRecentMessages ?? 8),
-    ),
-    semanticTopK: await promptRequiredNumber(
-      "Semantic memory top-k",
-      String(existingMemory?.semanticTopK ?? 6),
-    ),
-    episodicTopK: await promptRequiredNumber(
-      "Episodic memory top-k",
-      String(existingMemory?.episodicTopK ?? 4),
-    ),
-    maxPromptChars: await promptRequiredNumber(
-      "Memory prompt char budget",
-      String(existingMemory?.maxPromptChars ?? 2000),
-    ),
-    importanceThreshold: await promptOptionalNumber(
-      "Enhanced memory importance threshold",
-      existingMemory?.importanceThreshold !== undefined ? String(existingMemory.importanceThreshold) : "0.65",
-    ),
-  };
+  return {};
 }
 
 function compactProviderConfig(provider: StoredProviderConfig): StoredProviderConfig {
@@ -394,8 +335,6 @@ function compactProviderConfig(provider: StoredProviderConfig): StoredProviderCo
     maxTokens: provider.maxTokens,
     compact: provider.compact
       ? {
-        thresholdTokens: provider.compact.thresholdTokens,
-        targetTokens: provider.compact.targetTokens,
         instructionPath: provider.compact.instructionPath,
       }
       : undefined,

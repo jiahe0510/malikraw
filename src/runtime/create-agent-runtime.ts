@@ -122,9 +122,7 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
 async function bootstrapRuntimeDependencies(config: RuntimeConfig): Promise<RuntimeDependencies> {
   setWorkspaceRoot(config.workspaceRoot);
   await ensureWorkspaceInitialized();
-  if (config.memory?.enabled) {
-    await runMemoryMigrations();
-  }
+  await runMemoryMigrations();
 
   const skillRegistry = new SkillRegistry();
   const skills = await loadSkillsFromDirectory(getSkillsDirectory());
@@ -149,7 +147,6 @@ async function* executeRuntimeTurnEvents(
   const toolRegistry = createRuntimeToolRegistry({
     channels: config.channels,
     channelId: input.channelId,
-    memoryEnabled: Boolean(config.memory?.enabled),
     memoryService: dependencies.memoryService,
     memoryContext,
   });
@@ -279,7 +276,6 @@ function buildRuntimeAskResponse(result: Awaited<ReturnType<typeof runAgentLoop>
 function createRuntimeToolRegistry(input: {
   channels: RuntimeConfig["channels"];
   channelId?: string;
-  memoryEnabled: boolean;
   memoryService: ReturnType<typeof createMemoryService>;
   memoryContext: {
     sessionId: string;
@@ -290,9 +286,7 @@ function createRuntimeToolRegistry(input: {
   };
 }): ToolRegistry {
   const registry = registerBuiltinTools(new ToolRegistry());
-  if (input.memoryEnabled) {
-    registry.register(createMemorySearchTool(input.memoryService, input.memoryContext));
-  }
+  registry.register(createMemorySearchTool(input.memoryService, input.memoryContext));
   const feishuChannel = resolveFeishuChannelConfig(input.channels, input.channelId);
   if (feishuChannel) {
     registry.register(createReadFeishuDocTool(feishuChannel));
