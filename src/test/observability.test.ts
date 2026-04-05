@@ -14,8 +14,9 @@ import { MemoryRetriever } from "../memory/memory-retriever.js";
 import { DefaultMemoryService } from "../memory/memory-service.js";
 import { InMemorySessionStateStore } from "../memory/session-store.js";
 import { InMemoryToolChainMemoryStore } from "../memory/tool-chain-store.js";
+import { Gateway, type AgentRuntime } from "../index.js";
 
-test("observability writes compaction and tool call events to ~/.malikraw/log and ~/.malikraw/event", async () => {
+test("observability writes structured step events only to the event file", async () => {
   const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-observability-"));
   const previousHome = process.env.MALIKRAW_HOME;
   process.env.MALIKRAW_HOME = malikrawHome;
@@ -66,22 +67,60 @@ test("observability writes compaction and tool call events to ~/.malikraw/log an
       },
     });
 
-    const logContent = await readFile(getRuntimeLogFilePath(), "utf8");
     const eventContent = await readFile(getRuntimeEventFilePath(), "utf8");
-
-    assert.match(logContent, /context\.compact\.micro/);
-    assert.match(logContent, /context\.compact/);
-    assert.match(logContent, /tool\.start/);
-    assert.match(logContent, /tool\.success/);
-
-    const eventNames = eventContent
+    const events = eventContent
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line).name);
-    assert.ok(eventNames.includes("context.compact.micro"));
-    assert.ok(eventNames.includes("context.compact"));
-    assert.ok(eventNames.includes("tool.start"));
-    assert.ok(eventNames.includes("tool.success"));
+      .map((line) => JSON.parse(line));
+    const eventNames = events.map((event) => event.event);
+    assert.ok(eventNames.includes("[context.compact.micro]"));
+    assert.ok(eventNames.includes("[context.compact]"));
+    assert.ok(eventNames.includes("[tool.start]"));
+    assert.ok(eventNames.includes("[tool.success]"));
+  } finally {
+    restoreHome(previousHome);
+  }
+});
+
+test("runtime.log records query lifecycle and omits step events", async () => {
+  const malikrawHome = await mkdtemp(path.join(tmpdir(), "malikraw-observability-"));
+  const previousHome = process.env.MALIKRAW_HOME;
+  process.env.MALIKRAW_HOME = malikrawHome;
+
+  try {
+    const runtime: AgentRuntime = {
+      workspaceRoot: "/tmp/workspace",
+      ask: async ({ userRequest, history }) => ({
+        output: `reply:${userRequest}`,
+        visibleToolNames: ["read_file"],
+        messages: [
+          ...(history ?? []),
+          { role: "user", content: userRequest },
+          { role: "assistant", content: `reply:${userRequest}` },
+        ],
+        media: [],
+        messageDispatches: [],
+      }),
+    };
+    const gateway = new Gateway(runtime);
+    gateway.registerChannel({
+      id: "tui",
+      sendMessage: () => {},
+    });
+
+    await gateway.handleMessage({
+      session: {
+        channelId: "tui",
+        sessionId: "session-1",
+      },
+      content: "hello",
+    });
+
+    const logContent = await readFile(getRuntimeLogFilePath(), "utf8");
+    assert.match(logContent, /\[query\.start\]/);
+    assert.match(logContent, /\[query\.end\]/);
+    assert.doesNotMatch(logContent, /\[tool\.start\]/);
+    assert.doesNotMatch(logContent, /\[context\.compact/);
   } finally {
     restoreHome(previousHome);
   }
@@ -162,11 +201,11 @@ test("observability writes memory search and retrieve events", async () => {
     const eventNames = (await readFile(getRuntimeEventFilePath(), "utf8"))
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line).name);
+      .map((line) => JSON.parse(line).event);
 
-    assert.ok(eventNames.includes("memory.search.start"));
-    assert.ok(eventNames.includes("memory.search.result"));
-    assert.ok(eventNames.includes("memory.retrieve"));
+    assert.ok(eventNames.includes("[memory.search.start]"));
+    assert.ok(eventNames.includes("[memory.search.result]"));
+    assert.ok(eventNames.includes("[memory.retrieve]"));
   } finally {
     restoreHome(previousHome);
   }
@@ -214,8 +253,8 @@ test("observability writes context build events", async () => {
     const eventNames = (await readFile(getRuntimeEventFilePath(), "utf8"))
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line).name);
-    assert.ok(eventNames.includes("context.build"));
+      .map((line) => JSON.parse(line).event);
+    assert.ok(eventNames.includes("[context.build]"));
   } finally {
     restoreHome(previousHome);
   }
@@ -359,12 +398,12 @@ test("observability reuses one trace id across query steps", async () => {
       .map((line) => JSON.parse(line));
     const names = events
       .filter((event) => event.data?.traceId === traceId)
-      .map((event) => event.name);
+      .map((event) => event.event);
 
-    assert.ok(names.includes("context.build"));
-    assert.ok(names.includes("memory.search.start"));
-    assert.ok(names.includes("memory.search.result"));
-    assert.ok(names.includes("memory.retrieve"));
+    assert.ok(names.includes("[context.build]"));
+    assert.ok(names.includes("[memory.search.start]"));
+    assert.ok(names.includes("[memory.search.result]"));
+    assert.ok(names.includes("[memory.retrieve]"));
   } finally {
     restoreHome(previousHome);
   }

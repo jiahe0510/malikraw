@@ -13,6 +13,14 @@ export type RuntimeObservation = {
   at?: string;
 };
 
+export type RuntimeLogEntry = {
+  name: string;
+  message?: string;
+  level?: ObservabilityLevel;
+  data?: Record<string, unknown>;
+  at?: string;
+};
+
 const MAX_FIELD_LENGTH = 600;
 
 export function getLogDirectory(): string {
@@ -31,8 +39,34 @@ export function getRuntimeEventFilePath(): string {
   return path.join(getEventDirectory(), "runtime.jsonl");
 }
 
+export function getServiceLogFilePath(): string {
+  return path.join(getLogDirectory(), "service.log");
+}
+
 export function recordRuntimeObservation(input: RuntimeObservation): void {
   const event = {
+    at: input.at ?? new Date().toISOString(),
+    level: input.level ?? "info",
+    event: `[${input.name}]`,
+    name: input.name,
+    message: input.message,
+    data: sanitizeRecord(input.data),
+  };
+
+  try {
+    ensureObservabilityDirectories();
+    appendFileSync(getRuntimeEventFilePath(), `${JSON.stringify(event)}\n`, "utf8");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
+      return;
+    }
+    throw error;
+  }
+}
+
+export function recordRuntimeLog(input: RuntimeLogEntry): void {
+  const entry = {
     at: input.at ?? new Date().toISOString(),
     level: input.level ?? "info",
     name: input.name,
@@ -42,8 +76,7 @@ export function recordRuntimeObservation(input: RuntimeObservation): void {
 
   try {
     ensureObservabilityDirectories();
-    appendFileSync(getRuntimeEventFilePath(), `${JSON.stringify(event)}\n`, "utf8");
-    appendFileSync(getRuntimeLogFilePath(), `${formatLogLine(event)}\n`, "utf8");
+    appendFileSync(getRuntimeLogFilePath(), `${formatLogLine(entry)}\n`, "utf8");
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
@@ -68,7 +101,7 @@ function formatLogLine(event: {
   const parts = [
     `[${event.at}]`,
     `[${event.level}]`,
-    event.name,
+    `[${event.name}]`,
   ];
 
   if (event.message) {

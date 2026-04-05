@@ -220,11 +220,11 @@ test("OpenAICompatibleModel writes llm request events", async () => {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    const eventNames = events.map((event) => event.name);
-    assert.ok(eventNames.includes("llm.start"));
-    assert.ok(eventNames.includes("llm.success"));
-    assert.equal(events.find((event) => event.name === "llm.start")?.data?.traceId, traceId);
-    assert.equal(events.find((event) => event.name === "llm.success")?.data?.traceId, traceId);
+    const eventNames = events.map((event) => event.event);
+    assert.ok(eventNames.includes("[llm.start]"));
+    assert.ok(eventNames.includes("[llm.success]"));
+    assert.equal(events.find((event) => event.event === "[llm.start]")?.data?.traceId, traceId);
+    assert.equal(events.find((event) => event.event === "[llm.success]")?.data?.traceId, traceId);
   } finally {
     globalThis.fetch = originalFetch;
     if (previousHome === undefined) {
@@ -270,7 +270,7 @@ test("OpenAICompatibleModel writes llm fail events for fetch-level network error
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    const failEvent = events.find((event) => event.name === "llm.fail");
+    const failEvent = events.find((event) => event.event === "[llm.fail]");
 
     assert.equal(failEvent?.data?.traceId, traceId);
     assert.equal(failEvent?.data?.networkError, true);

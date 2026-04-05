@@ -41,7 +41,7 @@ test("service status clears stale pid metadata", async () => {
         pid: 999999,
         startedAt: "2026-03-07T00:00:00.000Z",
         command: "node dist/cli.js serve",
-        logPath: path.join(malikrawHome, "log", "runtime.log"),
+        logPath: path.join(malikrawHome, "log", "service.log"),
       })}\n`,
       "utf8",
     );
@@ -71,7 +71,7 @@ test("stopBackgroundService is safe when service is missing", async () => {
     });
 
     const logInfo = getServiceLogInfo();
-    assert.match(logInfo.logPath, /\/log\/runtime\.log$/);
+    assert.match(logInfo.logPath, /\/log\/service\.log$/);
     assert.equal(logInfo.sizeBytes, undefined);
   } finally {
     restoreHome(previousHome);

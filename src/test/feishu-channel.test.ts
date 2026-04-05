@@ -415,10 +415,10 @@ test("FeishuChannel writes inbound observability events for ignored and accepted
     const eventNames = (await readFile(getRuntimeEventFilePath(), "utf8"))
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line).name);
-    assert.ok(eventNames.includes("channel.inbound.received"));
-    assert.ok(eventNames.includes("channel.inbound.ignored"));
-    assert.ok(eventNames.includes("channel.inbound.accepted"));
+      .map((line) => JSON.parse(line).event);
+    assert.ok(eventNames.includes("[channel.inbound.received]"));
+    assert.ok(eventNames.includes("[channel.inbound.ignored]"));
+    assert.ok(eventNames.includes("[channel.inbound.accepted]"));
   } finally {
     if (previousHome === undefined) {
       delete process.env.MALIKRAW_HOME;

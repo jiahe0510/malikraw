@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { getLogDirectory, getRuntimeLogFilePath } from "../core/observability/observability.js";
+import { getLogDirectory, getServiceLogFilePath } from "../core/observability/observability.js";
 
 type ServiceMetadata = {
   pid: number;
@@ -118,7 +118,7 @@ export function getServicePidFilePath(): string {
 }
 
 export function getServiceLogPath(): string {
-  return getRuntimeLogFilePath();
+  return getServiceLogFilePath();
 }
 
 function getServiceDirectory(): string {
