@@ -39,10 +39,6 @@ export function getRuntimeEventFilePath(): string {
   return path.join(getEventDirectory(), "runtime.jsonl");
 }
 
-export function getServiceLogFilePath(): string {
-  return path.join(getLogDirectory(), "service.log");
-}
-
 export function recordRuntimeObservation(input: RuntimeObservation): void {
   const event = {
     at: input.at ?? new Date().toISOString(),
