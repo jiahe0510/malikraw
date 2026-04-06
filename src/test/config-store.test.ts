@@ -80,6 +80,7 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
     assert.equal(config.model.temperature, 0.3);
     assert.equal(config.model.contextWindow, 16384);
     assert.equal(config.model.maxTokens, 2048);
+    assert.equal(config.model.requestTimeoutMs, 1800000);
     assert.equal(config.model.compact.thresholdTokens, 11315);
     assert.equal(config.model.compact.targetTokens, 6789);
     assert.equal(config.workspaceRoot, path.join(malikrawHome, "workspace"));
@@ -115,6 +116,7 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
         temperature: 0.3,
         contextWindow: 16384,
         maxTokens: 2048,
+        requestTimeoutMs: 1800000,
         compact: {
           thresholdTokens: 11315,
           targetTokens: 6789,
@@ -192,6 +194,7 @@ test("loadRuntimeConfig ignores OPENAI environment variables and uses stored con
     assert.equal(config.model.model, "stored-model");
     assert.equal(config.model.contextWindow, 32768);
     assert.equal(config.model.maxTokens, 4096);
+    assert.equal(config.model.requestTimeoutMs, 1800000);
     assert.equal(config.defaultAgentId, "primary");
     assert.deepEqual(config.channels, [{
       id: "http",
