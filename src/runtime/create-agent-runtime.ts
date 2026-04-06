@@ -149,9 +149,11 @@ async function* executeRuntimeTurnEvents(
   const traceId = input.traceId ?? createRuntimeTraceId();
   const promptContent = await loadRuntimePromptContent();
   const memoryContext = resolveMemoryContext(input, traceId);
+  const initialMemoryMode = detectMemoryRetrieveMode(input.userRequest);
   const initialMemory = await dependencies.memoryService.retrieve({
     context: memoryContext,
     query: input.userRequest,
+    mode: initialMemoryMode,
   });
   const toolRegistry = createRuntimeToolRegistry({
     channels: config.channels,
@@ -256,6 +258,27 @@ function resolveMemoryContext(input: RuntimeAskInput, traceId: string): RuntimeT
 
 function createRuntimeTraceId(): string {
   return `qry_${randomUUID().replace(/-/g, "")}`;
+}
+
+function detectMemoryRetrieveMode(userRequest: string): "normal" | "analytic" {
+  const normalized = userRequest.toLowerCase();
+  const analyticPatterns = [
+    /你忘了/,
+    /为什么我总是/,
+    /为什么会反复/,
+    /分析一下/,
+    /模式/,
+    /冲突/,
+    /矛盾/,
+    /\byou forgot\b/,
+    /\bwhy do i always\b/,
+    /\bwhy does this keep happening\b/,
+    /\banaly[sz]e\b/,
+    /\bpattern\b/,
+    /\bconflict\b/,
+    /\bcontradiction\b/,
+  ];
+  return analyticPatterns.some((pattern) => pattern.test(normalized)) ? "analytic" : "normal";
 }
 
 async function persistRuntimeTurn(

@@ -1,16 +1,64 @@
 import type { ToolResultEnvelope } from "../core/tool-registry/types.js";
 
 export type MemoryScope = "session" | "project" | "global";
-export type MemoryItemType = "semantic" | "episode";
+export type MemoryLayer = "stm" | "ltm";
+export type MemoryStatus =
+  | "active"
+  | "cooling"
+  | "consolidated"
+  | "suppressed"
+  | "repressed"
+  | "archived"
+  | "invalidated";
+export type MemoryArtifactType =
+  | "session_snapshot"
+  | "session_note"
+  | "semantic"
+  | "episodic"
+  | "procedural"
+  | "relational"
+  | "affective"
+  | "repressed"
+  | "symptom"
+  | "conflict";
 export type MemorySource = "user_explicit" | "inferred" | "task_summary" | "history_compaction";
 export type ExtractedMemorySource = "explicit" | "inferred";
+
+export type MemorySourceRef = {
+  kind: "conversation" | "compaction" | "tool_chain" | "reflection";
+  sessionId?: string;
+  userId?: string;
+  agentId?: string;
+  projectId?: string;
+  turnIds?: Array<string | number>;
+  trigger?: "compaction" | "explicit_memory";
+};
+
+export type MemoryFrontmatterFields = {
+  memoryType?: MemoryArtifactType;
+  layer?: MemoryLayer;
+  status?: MemoryStatus;
+  salience?: number;
+  valence?: number;
+  arousal?: number;
+  retrievalWeight?: number;
+  repressionScore?: number;
+  linkedMemories?: string[];
+  screenFor?: string[];
+  triggerCues?: string[];
+  consolidationState?: "pending" | "merged" | "promoted" | "archived" | "discarded";
+  version?: number;
+  sourceRef?: MemorySourceRef;
+  tags?: string[];
+  entities?: string[];
+};
 
 export type SessionMemoryState = {
   handoff: string[];
   notes: string[];
 };
 
-export type SessionStateRecord = {
+export type SessionStateRecord = MemoryFrontmatterFields & {
   sessionId: string;
   userId: string;
   agentId: string;
@@ -19,53 +67,29 @@ export type SessionStateRecord = {
   updatedAt: string;
 };
 
-export type SemanticMemoryRecord = {
-  id: string;
-  userId: string;
-  agentId: string;
-  scope: MemoryScope;
-  key: string;
-  summary: string;
-  value: string | boolean | number;
-  confidence: number;
-  importance: number;
-  source: MemorySource;
-  content: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-};
+export type MemoryArtifactFamily = "knowledge" | "procedural";
 
-export type EpisodicMemoryRecord = {
+type BaseMemoryArtifactRecord = MemoryFrontmatterFields & {
   id: string;
   userId: string;
   agentId: string;
-  scope: MemoryScope;
-  summary: string;
-  entities: string[];
-  importance: number;
-  confidence: number;
-  source: MemorySource;
-  content: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type QueryMemoryItemRecord = {
-  id: string;
-  userId: string;
-  agentId: string;
-  scope: MemoryScope;
+  family: MemoryArtifactFamily;
   query: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeArtifactRecord = BaseMemoryArtifactRecord & {
+  family: "knowledge";
+  scope: MemoryScope;
   summary: string;
   content: string;
   importance: number;
   confidence: number;
   source: MemorySource;
-  createdAt: string;
-  updatedAt: string;
 };
 
-export type QueryMemoryItemCandidate = {
+export type KnowledgeArtifactCandidate = {
   query: string;
   summary: string;
   content: string;
@@ -73,7 +97,7 @@ export type QueryMemoryItemCandidate = {
   importance: number;
   confidence: number;
   source: MemorySource;
-};
+} & MemoryFrontmatterFields;
 
 export type SemanticMemoryCandidate = {
   key: string;
@@ -107,6 +131,9 @@ export type MemoryContext = {
   traceId?: string;
 };
 
+export type MemoryRetrieveMode = "normal" | "analytic";
+export type MemoryUsageTier = "fact" | "pattern" | "hypothesis";
+
 export type MemoryWriteInput = {
   context: MemoryContext;
   trigger: "compaction" | "explicit_memory";
@@ -130,45 +157,50 @@ export type ToolChainStep = {
   error?: unknown;
 };
 
-export type ToolChainMemoryRecord = {
-  id: string;
-  userId: string;
-  agentId: string;
+export type ProceduralArtifactRecord = BaseMemoryArtifactRecord & {
+  family: "procedural";
   sessionId: string;
   projectId?: string;
+  assistantResponse: string;
+  toolChain: ToolChainStep[];
+};
+
+export type ProceduralArtifactCandidate = {
   query: string;
   assistantResponse: string;
   toolChain: ToolChainStep[];
-  createdAt: string;
-  updatedAt: string;
-};
+} & MemoryFrontmatterFields;
+
+export type MemoryArtifactRecord = KnowledgeArtifactRecord | ProceduralArtifactRecord;
 
 export type MemoryRetrieveInput = {
   context: MemoryContext;
   query: string;
+  mode?: MemoryRetrieveMode;
 };
 
 export type RetrievedMemory = {
   sessionState?: SessionStateRecord;
-  memoryItems: QueryMemoryItemRecord[];
-  toolChains: ToolChainMemoryRecord[];
+  knowledgeArtifacts: KnowledgeArtifactRecord[];
+  proceduralArtifacts: ProceduralArtifactRecord[];
   compiledBlock: string;
+  mode: MemoryRetrieveMode;
   observations: MemoryObservations;
 };
 
 export type MemoryObservations = {
-  memoryItemsWritten: number;
-  toolChainsWritten: number;
-  memoryItemsRetrieved: number;
-  toolChainsRetrieved: number;
+  knowledgeArtifactsWritten: number;
+  proceduralArtifactsWritten: number;
+  knowledgeArtifactsRetrieved: number;
+  proceduralArtifactsRetrieved: number;
   compiledChars: number;
   estimatedTokens: number;
 };
 
 export type MemoryWriteResult = {
   sessionState?: SessionStateRecord;
-  memoryItemsWritten: number;
-  toolChainsWritten: number;
+  knowledgeArtifactsWritten: number;
+  proceduralArtifactsWritten: number;
   observations: MemoryObservations;
 };
 
@@ -179,62 +211,29 @@ export interface SessionStateStore {
   write(record: SessionStateRecord): Promise<void>;
 }
 
-export interface SemanticMemoryStore {
-  upsertMany(
+export interface ArtifactStore {
+  insertKnowledge(
     context: MemoryContext,
-    items: SemanticMemoryCandidate[],
-  ): Promise<number>;
-  listRelevant(
-    context: MemoryContext,
-    scopes: MemoryScope[],
-    limit: number,
-  ): Promise<SemanticMemoryRecord[]>;
-}
-
-export interface EpisodicMemoryStore {
-  insert(
-    context: MemoryContext,
-    episode: EpisodicMemoryCandidate,
+    artifact: KnowledgeArtifactCandidate,
   ): Promise<void>;
-  searchRelevant(
+  insertProcedural(
+    context: MemoryContext,
+    artifact: ProceduralArtifactCandidate,
+  ): Promise<void>;
+  searchKnowledge(
     context: MemoryContext,
     query: string,
     options: {
       limit: number;
     },
-  ): Promise<EpisodicMemoryRecord[]>;
-}
-
-export interface MemoryItemStore {
-  insert(
-    context: MemoryContext,
-    item: QueryMemoryItemCandidate,
-  ): Promise<void>;
-  searchRelevant(
+  ): Promise<KnowledgeArtifactRecord[]>;
+  searchProcedural(
     context: MemoryContext,
     query: string,
     options: {
       limit: number;
     },
-  ): Promise<QueryMemoryItemRecord[]>;
-}
-
-export interface ToolChainMemoryStore {
-  insert(
-    context: MemoryContext,
-    input: {
-      query: string;
-      assistantResponse: string;
-      toolChain: ToolChainStep[];
-    },
-  ): Promise<void>;
-  searchRelevant(
-    context: MemoryContext,
-    query: string,
-    options: {
-      limit: number;
-    },
-  ): Promise<ToolChainMemoryRecord[]>;
+  ): Promise<ProceduralArtifactRecord[]>;
 }
 
 export interface SemanticExtractor {

@@ -9,11 +9,10 @@ import { runAgentLoopEvents } from "../core/agent/run-agent-loop.js";
 import { executeTool } from "../core/tool-registry/tool-executor.js";
 import { s } from "../core/tool-registry/schema.js";
 import { getRuntimeEventFilePath, getRuntimeLogFilePath } from "../core/observability/observability.js";
-import { InMemoryMemoryItemStore } from "../memory/memory-item-store.js";
+import { InMemoryArtifactStore } from "../memory/artifact-store.js";
 import { MemoryRetriever } from "../memory/memory-retriever.js";
 import { DefaultMemoryService } from "../memory/memory-service.js";
 import { InMemorySessionStateStore } from "../memory/session-store.js";
-import { InMemoryToolChainMemoryStore } from "../memory/tool-chain-store.js";
 import { Gateway, type AgentRuntime } from "../index.js";
 
 test("observability writes structured step events only to the event file", async () => {
@@ -139,9 +138,8 @@ test("observability writes memory search and retrieve events", async () => {
       projectId: "p1",
     };
     const sessionStore = new InMemorySessionStateStore();
-    const itemStore = new InMemoryMemoryItemStore();
-    const toolChainStore = new InMemoryToolChainMemoryStore();
-    await itemStore.insert(context, {
+    const artifactStore = new InMemoryArtifactStore();
+    await artifactStore.insertKnowledge(context, {
       query: "how do we ship this",
       summary: "Shipping plan",
       content: "Cut scope and ship the stable API first.",
@@ -150,7 +148,7 @@ test("observability writes memory search and retrieve events", async () => {
       confidence: 0.8,
       source: "task_summary",
     });
-    await toolChainStore.insert(context, {
+    await artifactStore.insertProcedural(context, {
       query: "how do we ship this",
       assistantResponse: "Use read_file then edit_file.",
       toolChain: [
@@ -165,7 +163,7 @@ test("observability writes memory search and retrieve events", async () => {
     });
 
     const service = new DefaultMemoryService(
-      new MemoryRetriever(sessionStore, itemStore, toolChainStore, {
+      new MemoryRetriever(sessionStore, artifactStore, {
         baseURL: "https://example.invalid/v1",
         apiKey: "dummy",
         model: "test-model",
@@ -179,13 +177,13 @@ test("observability writes memory search and retrieve events", async () => {
       {
         write: async () => ({
           sessionState: undefined,
-          memoryItemsWritten: 0,
-          toolChainsWritten: 0,
+          knowledgeArtifactsWritten: 0,
+          proceduralArtifactsWritten: 0,
           observations: {
-            memoryItemsWritten: 0,
-            toolChainsWritten: 0,
-            memoryItemsRetrieved: 0,
-            toolChainsRetrieved: 0,
+            knowledgeArtifactsWritten: 0,
+            proceduralArtifactsWritten: 0,
+            knowledgeArtifactsRetrieved: 0,
+            proceduralArtifactsRetrieved: 0,
             compiledChars: 0,
             estimatedTokens: 0,
           },
@@ -275,9 +273,8 @@ test("observability reuses one trace id across query steps", async () => {
       traceId,
     };
     const sessionStore = new InMemorySessionStateStore();
-    const itemStore = new InMemoryMemoryItemStore();
-    const toolChainStore = new InMemoryToolChainMemoryStore();
-    await itemStore.insert(context, {
+    const artifactStore = new InMemoryArtifactStore();
+    await artifactStore.insertKnowledge(context, {
       query: "deploy this service",
       summary: "Deployment advice",
       content: "Deploy behind the existing gateway first.",
@@ -288,7 +285,7 @@ test("observability reuses one trace id across query steps", async () => {
     });
 
     const memoryService = new DefaultMemoryService(
-      new MemoryRetriever(sessionStore, itemStore, toolChainStore, {
+      new MemoryRetriever(sessionStore, artifactStore, {
         baseURL: "https://example.invalid/v1",
         apiKey: "dummy",
         model: "test-model",
@@ -302,13 +299,13 @@ test("observability reuses one trace id across query steps", async () => {
       {
         write: async () => ({
           sessionState: undefined,
-          memoryItemsWritten: 0,
-          toolChainsWritten: 0,
+          knowledgeArtifactsWritten: 0,
+          proceduralArtifactsWritten: 0,
           observations: {
-            memoryItemsWritten: 0,
-            toolChainsWritten: 0,
-            memoryItemsRetrieved: 0,
-            toolChainsRetrieved: 0,
+            knowledgeArtifactsWritten: 0,
+            proceduralArtifactsWritten: 0,
+            knowledgeArtifactsRetrieved: 0,
+            proceduralArtifactsRetrieved: 0,
             compiledChars: 0,
             estimatedTokens: 0,
           },

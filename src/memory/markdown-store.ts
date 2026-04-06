@@ -1,7 +1,16 @@
 import path from "node:path";
 
 import { listFilesRecursive, quarantineCorruptFile, readTextFile, withFileLock, writeTextFileAtomic } from "./file-store.js";
-import type { MemoryContext, QueryMemoryItemRecord, SessionStateRecord, ToolChainMemoryRecord } from "./types.js";
+import type {
+  KnowledgeArtifactRecord,
+  MemoryArtifactType,
+  MemoryContext,
+  MemoryLayer,
+  MemorySourceRef,
+  MemoryStatus,
+  ProceduralArtifactRecord,
+  SessionStateRecord,
+} from "./types.js";
 import { getMemoryStoreDirectory } from "./session-store.js";
 
 type FrontmatterRecord = Record<string, unknown>;
@@ -13,17 +22,33 @@ export function getAgentMemoryDirectory(agentId: string): string {
   return path.join(getMemoryStoreDirectory(), "agents", sanitizePathSegment(agentId));
 }
 
-export function getGlobalMemoryItemsDirectory(agentId: string): string {
-  return path.join(getAgentMemoryDirectory(agentId), "global", "memory-items");
+export function getAgentStmDirectory(agentId: string): string {
+  return path.join(getAgentMemoryDirectory(agentId), "stm");
 }
 
-export function getGlobalToolChainsDirectory(agentId: string): string {
-  return path.join(getAgentMemoryDirectory(agentId), "global", "tool-chains");
+export function getAgentLtmDirectory(agentId: string): string {
+  return path.join(getAgentMemoryDirectory(agentId), "ltm");
+}
+
+export function getStmInboxDirectory(agentId: string): string {
+  return path.join(getAgentStmDirectory(agentId), "inbox");
+}
+
+export function getStmActiveDirectory(agentId: string): string {
+  return path.join(getAgentStmDirectory(agentId), "active");
+}
+
+export function getStmSnapshotsDirectory(agentId: string): string {
+  return path.join(getAgentStmDirectory(agentId), "snapshots");
+}
+
+export function getLtmMemoryTypeDirectory(agentId: string, memoryType: Exclude<MemoryArtifactType, "session_snapshot" | "session_note" | "conflict">): string {
+  return path.join(getAgentLtmDirectory(agentId), memoryType);
 }
 
 export function getSessionMemoryDirectory(context: MemoryContext): string {
   return path.join(
-    getAgentMemoryDirectory(context.agentId),
+    getStmSnapshotsDirectory(context.agentId),
     "sessions",
     sanitizePathSegment(context.sessionId),
   );
@@ -33,16 +58,17 @@ export function getSessionStateFilePath(context: MemoryContext): string {
   return path.join(getSessionMemoryDirectory(context), "session.md");
 }
 
-export function getMemoryItemFilePath(record: QueryMemoryItemRecord): string {
+export function getKnowledgeArtifactFilePath(record: KnowledgeArtifactRecord): string {
+  const memoryType = inferKnowledgeMemoryType(record);
   return path.join(
-    getGlobalMemoryItemsDirectory(record.agentId),
+    getLtmMemoryTypeDirectory(record.agentId, memoryType),
     `${record.createdAt.replaceAll(":", "-")}-${record.id}.md`,
   );
 }
 
-export function getToolChainFilePath(record: ToolChainMemoryRecord): string {
+export function getProceduralArtifactFilePath(record: ProceduralArtifactRecord): string {
   return path.join(
-    getGlobalToolChainsDirectory(record.agentId),
+    getLtmMemoryTypeDirectory(record.agentId, "procedural"),
     `${record.createdAt.replaceAll(":", "-")}-${record.id}.md`,
   );
 }
@@ -68,32 +94,41 @@ export async function writeSessionStateMarkdown(record: SessionStateRecord): Pro
   });
 }
 
-export async function listMemoryItemMarkdownRecords(agentId: string): Promise<QueryMemoryItemRecord[]> {
-  return listMarkdownRecords(getGlobalMemoryItemsDirectory(agentId), parseMemoryItemMarkdown);
+export async function listKnowledgeArtifactMarkdownRecords(agentId: string): Promise<KnowledgeArtifactRecord[]> {
+  const [semantic, episodic, affective, repressed, symptom, relational] = await Promise.all([
+    listMarkdownRecords(getLtmMemoryTypeDirectory(agentId, "semantic"), parseKnowledgeArtifactMarkdown),
+    listMarkdownRecords(getLtmMemoryTypeDirectory(agentId, "episodic"), parseKnowledgeArtifactMarkdown),
+    listMarkdownRecords(getLtmMemoryTypeDirectory(agentId, "affective"), parseKnowledgeArtifactMarkdown),
+    listMarkdownRecords(getLtmMemoryTypeDirectory(agentId, "repressed"), parseKnowledgeArtifactMarkdown),
+    listMarkdownRecords(getLtmMemoryTypeDirectory(agentId, "symptom"), parseKnowledgeArtifactMarkdown),
+    listMarkdownRecords(getLtmMemoryTypeDirectory(agentId, "relational"), parseKnowledgeArtifactMarkdown),
+  ]);
+  return [...semantic, ...episodic, ...affective, ...repressed, ...symptom, ...relational];
 }
 
-export async function writeMemoryItemMarkdown(record: QueryMemoryItemRecord): Promise<void> {
-  const filePath = getMemoryItemFilePath(record);
+export async function writeKnowledgeArtifactMarkdown(record: KnowledgeArtifactRecord): Promise<void> {
+  const filePath = getKnowledgeArtifactFilePath(record);
   await withFileLock(filePath, async () => {
-    await writeTextFileAtomic(filePath, renderMemoryItemMarkdown(record));
+    await writeTextFileAtomic(filePath, renderKnowledgeArtifactMarkdown(record));
   });
 }
 
-export async function listToolChainMarkdownRecords(agentId: string): Promise<ToolChainMemoryRecord[]> {
-  return listMarkdownRecords(getGlobalToolChainsDirectory(agentId), parseToolChainMarkdown);
+export async function listProceduralArtifactMarkdownRecords(agentId: string): Promise<ProceduralArtifactRecord[]> {
+  return listMarkdownRecords(getLtmMemoryTypeDirectory(agentId, "procedural"), parseProceduralArtifactMarkdown);
 }
 
-export async function writeToolChainMarkdown(record: ToolChainMemoryRecord): Promise<void> {
-  const filePath = getToolChainFilePath(record);
+export async function writeProceduralArtifactMarkdown(record: ProceduralArtifactRecord): Promise<void> {
+  const filePath = getProceduralArtifactFilePath(record);
   await withFileLock(filePath, async () => {
-    await writeTextFileAtomic(filePath, renderToolChainMarkdown(record));
+    await writeTextFileAtomic(filePath, renderProceduralArtifactMarkdown(record));
   });
 }
 
 export function renderSessionStateMarkdown(record: SessionStateRecord): string {
+  const frontmatter = decorateSessionStateRecord(record);
   return [
-    renderFrontmatter(record),
-    "# Session Memory",
+    renderFrontmatter(frontmatter),
+    "# STM Session Snapshot",
     "",
     `- Session: \`${record.sessionId}\``,
     `- User: \`${record.userId}\``,
@@ -111,10 +146,11 @@ export function renderSessionStateMarkdown(record: SessionStateRecord): string {
   ].join("\n");
 }
 
-export function renderMemoryItemMarkdown(record: QueryMemoryItemRecord): string {
+export function renderKnowledgeArtifactMarkdown(record: KnowledgeArtifactRecord): string {
+  const frontmatter = decorateKnowledgeArtifactRecord(record);
   return [
-    renderFrontmatter(record),
-    "# Global Memory Item",
+    renderFrontmatter(frontmatter),
+    `# LTM ${singleLine(record.memoryType ?? "semantic")} Artifact`,
     "",
     `- Query: ${singleLine(record.query)}`,
     `- Scope: ${record.scope}`,
@@ -133,10 +169,11 @@ export function renderMemoryItemMarkdown(record: QueryMemoryItemRecord): string 
   ].join("\n");
 }
 
-export function renderToolChainMarkdown(record: ToolChainMemoryRecord): string {
+export function renderProceduralArtifactMarkdown(record: ProceduralArtifactRecord): string {
+  const frontmatter = decorateProceduralArtifactRecord(record);
   return [
-    renderFrontmatter(record),
-    "# Global Tool Chain",
+    renderFrontmatter(frontmatter),
+    "# LTM Procedural Memory",
     "",
     `- Query: ${singleLine(record.query)}`,
     `- Session: \`${record.sessionId}\``,
@@ -156,12 +193,12 @@ export function renderToolChainMarkdown(record: ToolChainMemoryRecord): string {
   ].join("\n");
 }
 
-function parseMemoryItemMarkdown(raw: string): QueryMemoryItemRecord {
-  return parseFrontmatter<QueryMemoryItemRecord>(raw);
+function parseKnowledgeArtifactMarkdown(raw: string): KnowledgeArtifactRecord {
+  return parseFrontmatter<KnowledgeArtifactRecord>(raw);
 }
 
-function parseToolChainMarkdown(raw: string): ToolChainMemoryRecord {
-  return parseFrontmatter<ToolChainMemoryRecord>(raw);
+function parseProceduralArtifactMarkdown(raw: string): ProceduralArtifactRecord {
+  return parseFrontmatter<ProceduralArtifactRecord>(raw);
 }
 
 function renderFrontmatter(record: FrontmatterRecord): string {
@@ -199,10 +236,103 @@ function normalizeSessionStateRecord(value: unknown): SessionStateRecord {
     agentId: typeof record.agentId === "string" ? record.agentId : "default",
     projectId: typeof record.projectId === "string" ? record.projectId : undefined,
     updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : new Date().toISOString(),
+    memoryType: normalizeMemoryType(record.memoryType, "session_snapshot"),
+    layer: normalizeMemoryLayer(record.layer, "stm"),
+    status: normalizeMemoryStatus(record.status, "active"),
+    salience: normalizeNumber(record.salience, 0.6),
+    retrievalWeight: normalizeNumber(record.retrievalWeight, 0.7),
+    repressionScore: normalizeNumber(record.repressionScore, 0),
+    consolidationState: normalizeConsolidationState(record.consolidationState, "pending"),
+    version: normalizeNumber(record.version, 1),
+    sourceRef: normalizeSourceRef(record.sourceRef, record),
+    tags: normalizeStringArray(record.tags),
+    entities: normalizeStringArray(record.entities),
+    triggerCues: normalizeStringArray(record.triggerCues),
+    linkedMemories: normalizeStringArray(record.linkedMemories),
+    screenFor: normalizeStringArray(record.screenFor),
     state: {
       handoff,
       notes,
     },
+  };
+}
+
+function decorateSessionStateRecord(record: SessionStateRecord): FrontmatterRecord {
+  return {
+    ...record,
+    memoryType: record.memoryType ?? "session_snapshot",
+    layer: record.layer ?? "stm",
+    status: record.status ?? "active",
+    salience: record.salience ?? 0.6,
+    retrievalWeight: record.retrievalWeight ?? 0.75,
+    repressionScore: record.repressionScore ?? 0,
+    consolidationState: record.consolidationState ?? "pending",
+    version: record.version ?? 1,
+    sourceRef: record.sourceRef ?? {
+      kind: "conversation",
+      sessionId: record.sessionId,
+      userId: record.userId,
+      agentId: record.agentId,
+      projectId: record.projectId,
+    },
+    tags: record.tags ?? ["session", "snapshot"],
+    entities: record.entities ?? [],
+    triggerCues: record.triggerCues ?? [],
+    linkedMemories: record.linkedMemories ?? [],
+    screenFor: record.screenFor ?? [],
+  };
+}
+
+function decorateKnowledgeArtifactRecord(record: KnowledgeArtifactRecord): FrontmatterRecord {
+  return {
+    ...record,
+    family: "knowledge",
+    memoryType: record.memoryType ?? inferKnowledgeMemoryType(record),
+    layer: record.layer ?? "ltm",
+    status: record.status ?? "consolidated",
+    salience: record.salience ?? clamp01(record.importance),
+    retrievalWeight: record.retrievalWeight ?? clamp01(record.importance),
+    repressionScore: record.repressionScore ?? 0,
+    consolidationState: record.consolidationState ?? "promoted",
+    version: record.version ?? 1,
+    sourceRef: record.sourceRef ?? {
+      kind: record.source === "history_compaction" ? "compaction" : "conversation",
+      sessionId: record.scope === "session" ? undefined : undefined,
+      userId: record.userId,
+      agentId: record.agentId,
+    },
+    tags: record.tags ?? [record.source, record.scope, record.memoryType ?? "semantic"],
+    entities: record.entities ?? [],
+    triggerCues: record.triggerCues ?? extractTriggerCues(record.query),
+    linkedMemories: record.linkedMemories ?? [],
+    screenFor: record.screenFor ?? [],
+  };
+}
+
+function decorateProceduralArtifactRecord(record: ProceduralArtifactRecord): FrontmatterRecord {
+  return {
+    ...record,
+    family: "procedural",
+    memoryType: record.memoryType ?? "procedural",
+    layer: record.layer ?? "ltm",
+    status: record.status ?? "consolidated",
+    salience: record.salience ?? clamp01(Math.min(1, 0.4 + record.toolChain.length * 0.1)),
+    retrievalWeight: record.retrievalWeight ?? clamp01(Math.min(1, 0.5 + record.toolChain.length * 0.08)),
+    repressionScore: record.repressionScore ?? 0,
+    consolidationState: record.consolidationState ?? "promoted",
+    version: record.version ?? 1,
+    sourceRef: record.sourceRef ?? {
+      kind: "tool_chain",
+      sessionId: record.sessionId,
+      userId: record.userId,
+      agentId: record.agentId,
+      projectId: record.projectId,
+    },
+    tags: record.tags ?? ["tool-chain", "procedural"],
+    entities: record.entities ?? record.toolChain.map((step) => step.toolName),
+    triggerCues: record.triggerCues ?? extractTriggerCues(record.query),
+    linkedMemories: record.linkedMemories ?? [],
+    screenFor: record.screenFor ?? [],
   };
 }
 
@@ -257,6 +387,131 @@ async function listMarkdownRecords<T>(directoryPath: string, parser: (raw: strin
 
 function sanitizePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function normalizeString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function normalizeNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+}
+
+function normalizeMemoryType(value: unknown, fallback: MemoryArtifactType): MemoryArtifactType {
+  const normalized = typeof value === "string" ? value : "";
+  switch (normalized) {
+    case "session_snapshot":
+    case "session_note":
+    case "semantic":
+    case "episodic":
+    case "procedural":
+    case "relational":
+    case "affective":
+    case "repressed":
+    case "symptom":
+    case "conflict":
+      return normalized;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeMemoryLayer(value: unknown, fallback: MemoryLayer): MemoryLayer {
+  return value === "stm" || value === "ltm" ? value : fallback;
+}
+
+function normalizeMemoryStatus(value: unknown, fallback: MemoryStatus): MemoryStatus {
+  switch (value) {
+    case "active":
+    case "cooling":
+    case "consolidated":
+    case "suppressed":
+    case "repressed":
+    case "archived":
+    case "invalidated":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeConsolidationState(
+  value: unknown,
+  fallback: "pending" | "merged" | "promoted" | "archived" | "discarded",
+): "pending" | "merged" | "promoted" | "archived" | "discarded" {
+  switch (value) {
+    case "pending":
+    case "merged":
+    case "promoted":
+    case "archived":
+    case "discarded":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function normalizeSourceRef(value: unknown, record: Record<string, unknown>): MemorySourceRef | undefined {
+  if (value && typeof value === "object") {
+    const sourceRef = value as Record<string, unknown>;
+    const kind = typeof sourceRef.kind === "string"
+      && ["conversation", "compaction", "tool_chain", "reflection"].includes(sourceRef.kind)
+      ? sourceRef.kind as MemorySourceRef["kind"]
+      : "conversation";
+    return {
+      kind,
+      sessionId: typeof sourceRef.sessionId === "string" ? sourceRef.sessionId : undefined,
+      userId: typeof sourceRef.userId === "string" ? sourceRef.userId : undefined,
+      agentId: typeof sourceRef.agentId === "string" ? sourceRef.agentId : undefined,
+      projectId: typeof sourceRef.projectId === "string" ? sourceRef.projectId : undefined,
+      turnIds: Array.isArray(sourceRef.turnIds)
+        ? sourceRef.turnIds.filter((entry): entry is string | number => typeof entry === "string" || typeof entry === "number")
+        : undefined,
+      trigger: sourceRef.trigger === "compaction" || sourceRef.trigger === "explicit_memory"
+        ? sourceRef.trigger
+        : undefined,
+    };
+  }
+
+  return {
+    kind: "conversation",
+    sessionId: typeof record.sessionId === "string" ? record.sessionId : undefined,
+    userId: typeof record.userId === "string" ? record.userId : undefined,
+    agentId: typeof record.agentId === "string" ? record.agentId : undefined,
+    projectId: typeof record.projectId === "string" ? record.projectId : undefined,
+  };
+}
+
+function inferKnowledgeMemoryType(record: KnowledgeArtifactRecord): Exclude<MemoryArtifactType, "session_snapshot" | "session_note" | "conflict" | "procedural"> {
+  switch (record.memoryType) {
+    case "semantic":
+    case "episodic":
+    case "relational":
+    case "affective":
+    case "repressed":
+    case "symptom":
+      return record.memoryType;
+    default:
+      return record.source === "history_compaction" ? "episodic" : "semantic";
+  }
+}
+
+function extractTriggerCues(query: string): string[] {
+  return singleLine(query)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .slice(0, 8);
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
 
 function singleLine(value: string): string {

@@ -1,5 +1,6 @@
 import { defineTool, s, type ToolSpec } from "../core/tool-registry/index.js";
-import type { MemoryContext, MemoryService } from "../memory/types.js";
+import { classifyMemoryUsageTier } from "../memory/memory-compiler.js";
+import type { MemoryContext, MemoryRetrieveMode, MemoryService } from "../memory/types.js";
 
 export function createMemorySearchTool(
   memoryService: MemoryService,
@@ -11,25 +12,30 @@ export function createMemorySearchTool(
     inputSchema: s.object(
       {
         query: s.string({ minLength: 1, maxLength: 400 }),
+        mode: s.optional(s.union([s.literal("normal"), s.literal("analytic")])),
       },
       { required: ["query"] },
     ),
-    execute: async ({ query }) => {
+    execute: async ({ query, mode }) => {
       const result = await memoryService.retrieve({
         context,
         query,
+        mode: normalizeMode(mode),
       });
 
       return {
         query,
-        memoryItems: result.memoryItems.map((item) => ({
+        mode: result.mode,
+        knowledgeArtifacts: result.knowledgeArtifacts.map((item) => ({
           query: item.query,
           summary: item.summary,
           content: item.content,
+          memoryType: item.memoryType ?? "semantic",
+          tier: classifyMemoryUsageTier(item, result.mode),
           importance: item.importance,
           source: item.source,
         })),
-        toolChains: result.toolChains.map((item) => ({
+        proceduralArtifacts: result.proceduralArtifacts.map((item) => ({
           query: item.query,
           assistantResponse: item.assistantResponse,
           toolNames: item.toolChain.map((step) => step.toolName),
@@ -42,12 +48,16 @@ export function createMemorySearchTool(
           : undefined,
         compiledBlock: result.compiledBlock,
         observations: {
-          memoryItemsRetrieved: result.observations.memoryItemsRetrieved,
-          toolChainsRetrieved: result.observations.toolChainsRetrieved,
+          knowledgeArtifactsRetrieved: result.observations.knowledgeArtifactsRetrieved,
+          proceduralArtifactsRetrieved: result.observations.proceduralArtifactsRetrieved,
           compiledChars: result.observations.compiledChars,
           estimatedTokens: result.observations.estimatedTokens,
         },
       };
     },
   }) satisfies ToolSpec;
+}
+
+function normalizeMode(value: unknown): MemoryRetrieveMode | undefined {
+  return value === "analytic" || value === "normal" ? value : undefined;
 }

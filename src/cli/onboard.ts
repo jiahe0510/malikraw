@@ -7,7 +7,6 @@ import {
   type StoredChannelConfig,
   type StoredChannelsConfig,
   type StoredFeishuChannelConfig,
-  type StoredMemoryConfig,
   type StoredProviderConfig,
   type StoredProvidersConfig,
   type StoredSystemConfig,
@@ -41,7 +40,6 @@ export async function runOnboardWizard(): Promise<void> {
   const defaultAgentId = agents[0]?.id ?? "main";
   const channels = await collectChannels(existing.channels?.channels ?? [], defaultAgentId, agents.map((agent) => agent.id));
   const tools = await collectToolsConfig(existing.tools);
-  const memory = await collectMemoryConfig(existing.memory);
   const gatewayPort = await promptRequiredNumber(
     "Gateway port",
     String(existing.system?.gatewayPort ?? 5050),
@@ -84,7 +82,7 @@ export async function runOnboardWizard(): Promise<void> {
     channels: storedChannels,
     tools,
     agents: storedAgents,
-    memory,
+    memory: {},
   });
 
   console.log("");
@@ -287,12 +285,6 @@ async function collectToolsConfig(existingTools: StoredToolsConfig | undefined):
       await promptText("Brave Search API key", existingTools?.braveSearchApiKey || ""),
     ),
   };
-}
-
-async function collectMemoryConfig(
-  _existingMemory: StoredMemoryConfig | undefined,
-): Promise<StoredMemoryConfig> {
-  return {};
 }
 
 function compactProviderConfig(provider: StoredProviderConfig): StoredProviderConfig {

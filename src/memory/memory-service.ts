@@ -1,10 +1,9 @@
 import type { OpenAICompatibleConfig } from "../core/config/agent-config.js";
 import { recordRuntimeObservation } from "../core/observability/observability.js";
-import { FileBackedMemoryItemStore } from "./memory-item-store.js";
+import { FileBackedArtifactStore } from "./artifact-store.js";
 import { MemoryRetriever } from "./memory-retriever.js";
 import { MemoryWriter } from "./memory-writer.js";
 import { FileBackedSessionStateStore } from "./session-store.js";
-import { FileBackedToolChainMemoryStore } from "./tool-chain-store.js";
 import type { MemoryRetrieveInput, MemoryService, MemoryWriteInput } from "./types.js";
 
 export class DefaultMemoryService implements MemoryService {
@@ -17,14 +16,15 @@ export class DefaultMemoryService implements MemoryService {
     const result = await this.retriever.retrieve(input);
     recordRuntimeObservation({
       name: "memory.retrieve",
-      message: "Retrieved relevant memory for the current query.",
+      message: "Retrieved relevant memory artifacts for the current query.",
       data: {
         traceId: input.context.traceId,
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
-        memoryItems: result.observations.memoryItemsRetrieved,
-        toolChains: result.observations.toolChainsRetrieved,
+        mode: input.mode ?? "normal",
+        knowledgeArtifacts: result.observations.knowledgeArtifactsRetrieved,
+        proceduralArtifacts: result.observations.proceduralArtifactsRetrieved,
         compiledChars: result.observations.compiledChars,
         estimatedTokens: result.observations.estimatedTokens,
         query: input.query,
@@ -36,15 +36,15 @@ export class DefaultMemoryService implements MemoryService {
   async write(input: MemoryWriteInput) {
     const result = await this.writer.write(input);
     recordRuntimeObservation({
-      name: "memory.save",
+      name: "memory.artifacts.write",
       message: "Persisted memory artifacts for the completed turn.",
       data: {
         traceId: input.context.traceId,
         userId: input.context.userId,
         agentId: input.context.agentId,
         sessionId: input.context.sessionId,
-        memoryItems: result.memoryItemsWritten,
-        toolChains: result.toolChainsWritten,
+        knowledgeArtifacts: result.knowledgeArtifactsWritten,
+        proceduralArtifacts: result.proceduralArtifactsWritten,
       },
     });
     return result;
@@ -56,15 +56,13 @@ export function createMemoryService(
   modelConfig: OpenAICompatibleConfig,
 ): MemoryService {
   const sessionStore = new FileBackedSessionStateStore();
-  const memoryItemStore = new FileBackedMemoryItemStore();
-  const toolChainStore = new FileBackedToolChainMemoryStore();
+  const artifactStore = new FileBackedArtifactStore();
 
   return new DefaultMemoryService(
-    new MemoryRetriever(sessionStore, memoryItemStore, toolChainStore, modelConfig),
+    new MemoryRetriever(sessionStore, artifactStore, modelConfig),
     new MemoryWriter(
       sessionStore,
-      memoryItemStore,
-      toolChainStore,
+      artifactStore,
     ),
   );
 }
