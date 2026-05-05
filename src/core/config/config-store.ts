@@ -27,6 +27,9 @@ export type StoredProviderConfig = {
   apiKey: string;
   model: string;
   profile?: ProviderProfile;
+  promptCache?: {
+    type: "anthropic_cache_control";
+  };
   temperature?: number;
   contextWindow?: number;
   maxTokens?: number;

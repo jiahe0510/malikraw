@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
   AgentMessage,
   AgentModel,
@@ -77,6 +79,7 @@ export class OpenAICompatibleModel implements AgentModel {
         timeoutMs,
         messageCount: requestBody.messages.length,
         toolCount: requestBody.tools?.length ?? 0,
+        cache: summarizePromptCache(input.messages, this.config.promptCache?.type),
         request: input.debug ? requestBody : summarizeRequestBody(requestBody),
       },
     });
@@ -173,7 +176,9 @@ export class OpenAICompatibleModel implements AgentModel {
 function buildRequestBody(config: OpenAICompatibleConfig, input: AgentModelRequest): OpenAIChatCompletionRequest {
   return {
     model: config.model,
-    messages: normalizeMessagesForProfile(input.messages, config.profile).map((message) => ({
+    messages: normalizeMessagesForProfile(input.messages, config.profile, {
+      explicitCacheControl: config.promptCache?.type === "anthropic_cache_control",
+    }).map((message) => ({
       ...message,
       content: normalizeTransportContent(message.content),
     })),
@@ -213,7 +218,26 @@ function normalizeTransportContent(content: string | TransportContentPart[]): st
     return content;
   }
 
-  return content.length <= 1 ? (content[0]?.text ?? "") : content;
+  return content.length <= 1 && !content[0]?.cache_control ? (content[0]?.text ?? "") : content;
+}
+
+function summarizePromptCache(
+  messages: readonly AgentMessage[],
+  explicitProviderHint: string | undefined,
+): Record<string, unknown> {
+  const cacheablePrefix = messages.filter((message, index) =>
+    message.cacheControl && messages.slice(0, index).every((prefixMessage) => prefixMessage.cacheControl)
+  );
+  const rendered = cacheablePrefix
+    .map((message) => `${message.role}\n${message.content}`)
+    .join("\n\n");
+
+  return {
+    explicitProviderHint: explicitProviderHint ?? "none",
+    cacheablePrefixMessages: cacheablePrefix.length,
+    cacheablePrefixChars: rendered.length,
+    stablePrefixHash: rendered ? createHash("sha256").update(rendered).digest("hex").slice(0, 16) : undefined,
+  };
 }
 
 function looksLikeContextLengthFailure(status: number, body: string): boolean {

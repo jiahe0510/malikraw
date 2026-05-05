@@ -46,7 +46,7 @@ export class ToolRegistry {
   }
 
   list(): RegisteredTool[] {
-    return [...this.tools.values()];
+    return [...this.tools.values()].sort((left, right) => left.name.localeCompare(right.name));
   }
 
   toModelTools(toolNames?: readonly string[]): ModelToolDefinition[] {

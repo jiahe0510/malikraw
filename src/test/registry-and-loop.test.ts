@@ -40,6 +40,25 @@ test("tool registry returns validation errors in envelope", async () => {
   }
 });
 
+test("tool registry describes tools in stable name order", () => {
+  const registry = new ToolRegistry();
+  registry.register(defineTool({
+    name: "z_tool",
+    description: "last",
+    inputSchema: s.object({}),
+    execute: () => ({}),
+  }));
+  registry.register(defineTool({
+    name: "a_tool",
+    description: "first",
+    inputSchema: s.object({}),
+    execute: () => ({}),
+  }));
+
+  assert.deepEqual(registry.toModelTools().map((tool) => tool.function.name), ["a_tool", "z_tool"]);
+  assert.equal(registry.describeTools(), "- a_tool: first\n- z_tool: last");
+});
+
 test("buildPrompt includes skills, tool summary, memory, and user request", () => {
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(parseSkillMarkdown(`---
@@ -102,12 +121,21 @@ read before edit`));
   assert.equal(prompt.messages[3]?.role, "system");
   assert.match(prompt.messages[3]?.content ?? "", /Workspace AGENT\.md/);
   assert.equal(prompt.messages[4]?.role, "developer");
-  assert.match(prompt.messages[4]?.content ?? "", /System context:/);
-  assert.match(prompt.messages[4]?.content ?? "", /Channel: feishu/);
+  assert.match(prompt.messages[4]?.content ?? "", /Active Skills/);
+  assert.equal(prompt.messages[4]?.cacheControl?.type, "ephemeral");
   assert.equal(prompt.messages[5]?.role, "developer");
-  assert.match(prompt.messages[5]?.content ?? "", /Active Skills/);
-  assert.equal(prompt.messages[6]?.role, "user");
-  assert.match(prompt.messages[6]?.content ?? "", /<system-reminder>/);
+  assert.match(prompt.messages[5]?.content ?? "", /Runtime Context/);
+  assert.doesNotMatch(prompt.messages[5]?.content ?? "", /Channel: feishu/);
+  assert.equal(prompt.messages[5]?.cacheControl?.type, "ephemeral");
+  assert.equal(prompt.messages[6]?.role, "developer");
+  assert.match(prompt.messages[6]?.content ?? "", /Memory Usage Guidance/);
+  assert.equal(prompt.messages[6]?.cacheControl?.type, "ephemeral");
+  assert.equal(prompt.messages[7]?.role, "developer");
+  assert.match(prompt.messages[7]?.content ?? "", /Dynamic Runtime Context/);
+  assert.match(prompt.messages[7]?.content ?? "", /Channel: feishu/);
+  assert.equal(prompt.messages[7]?.cacheControl, undefined);
+  assert.equal(prompt.messages[8]?.role, "user");
+  assert.match(prompt.messages[8]?.content ?? "", /<system-reminder>/);
 });
 
 test("collectQueryContext separates instruction, user context, and system context", () => {
@@ -157,7 +185,7 @@ read before edit`));
   assert.deepEqual(context.activeSkillIds, ["workspace_operator"]);
 });
 
-test("finalizeQueryContext appends system context and user reminder without flattening the context object", () => {
+test("finalizeQueryContext appends dynamic system context after stable instructions", () => {
   const prompt = finalizeQueryContext({
     instructionMessages: [
       { role: "system", content: "global policy" },
@@ -178,13 +206,17 @@ test("finalizeQueryContext appends system context and user reminder without flat
 
   assert.equal(prompt.messages[0]?.role, "system");
   assert.equal(prompt.messages[1]?.role, "developer");
-  assert.match(prompt.messages[1]?.content ?? "", /System context:/);
-  assert.match(prompt.messages[1]?.content ?? "", /Channel: feishu/);
-  assert.equal(prompt.messages[2]?.role, "user");
-  assert.match(prompt.messages[2]?.content ?? "", /<system-reminder>/);
-  assert.match(prompt.messages[2]?.content ?? "", /Memory Guidance/);
-  assert.equal(prompt.messages[3]?.content, "earlier");
-  assert.equal(prompt.messages[4]?.content, "latest");
+  assert.doesNotMatch(prompt.messages[1]?.content ?? "", /Channel: feishu/);
+  assert.equal(prompt.messages[2]?.role, "developer");
+  assert.match(prompt.messages[2]?.content ?? "", /Memory Usage Guidance/);
+  assert.equal(prompt.messages[3]?.role, "developer");
+  assert.match(prompt.messages[3]?.content ?? "", /Dynamic Runtime Context/);
+  assert.match(prompt.messages[3]?.content ?? "", /Channel: feishu/);
+  assert.equal(prompt.messages[4]?.role, "user");
+  assert.match(prompt.messages[4]?.content ?? "", /<system-reminder>/);
+  assert.doesNotMatch(prompt.messages[4]?.content ?? "", /Memory Guidance/);
+  assert.equal(prompt.messages[5]?.content, "earlier");
+  assert.equal(prompt.messages[6]?.content, "latest");
 });
 
 test("buildPrompt omits retrieved memory section when none is injected", () => {
@@ -249,6 +281,42 @@ read before edit`);
   }], ["read_file", "edit_file", "exec_shell"]);
 
   assert.deepEqual(visible, ["read_file", "edit_file", "exec_shell"]);
+});
+
+test("buildPrompt renders skills in stable name order before runtime context", () => {
+  const skillRegistry = new SkillRegistry();
+  skillRegistry.register(parseSkillMarkdown(`---
+name: zeta
+description: z skill
+promptRole: developer
+---
+
+z behavior`));
+  skillRegistry.register(parseSkillMarkdown(`---
+name: alpha
+description: a skill
+promptRole: developer
+---
+
+a behavior`));
+  const selected = skillRegistry.select(["zeta", "alpha"]);
+  if (!selected.ok) {
+    throw new Error(selected.error.message);
+  }
+
+  const prompt = buildPrompt({
+    globalPolicy: "global policy",
+    userRequest: "hi",
+    activeSkills: selected.skills,
+    toolSummary: "- b_tool: B\n- a_tool: A",
+  });
+  const skills = prompt.messages.find((message) => message.content.startsWith("Active Skills"));
+  const runtime = prompt.messages.find((message) => message.content.startsWith("Runtime Context"));
+
+  assert.ok(skills);
+  assert.ok(runtime);
+  assert.ok(prompt.messages.indexOf(skills) < prompt.messages.indexOf(runtime));
+  assert.ok((skills.content.indexOf("Skill: alpha")) < (skills.content.indexOf("Skill: zeta")));
 });
 
 test("runAgentLoop executes tool calls and returns final output", async () => {

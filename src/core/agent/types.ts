@@ -1,4 +1,4 @@
-import type { PromptRole, SelectedSkill } from "../skill-registry/types.js";
+import type { PromptMessage, PromptRole, SelectedSkill } from "../skill-registry/types.js";
 import type { ModelToolDefinition, ToolResultEnvelope } from "../tool-registry/types.js";
 
 export type MessageRole = PromptRole | "user" | "assistant" | "tool";
@@ -7,12 +7,18 @@ export type AgentContentBlock =
   | {
       type: "text";
       text: string;
+      cacheControl?: AgentCacheControl;
     }
   | {
       type: "json";
       data: unknown;
       text?: string;
+      cacheControl?: AgentCacheControl;
     };
+
+export type AgentCacheControl = {
+  type: "ephemeral";
+};
 
 export type AgentMessage = {
   role: MessageRole;
@@ -20,6 +26,7 @@ export type AgentMessage = {
   contentBlocks?: AgentContentBlock[];
   toolCallId?: string;
   toolName?: string;
+  cacheControl?: AgentCacheControl;
 };
 
 export type AgentPromptInput = {
@@ -40,10 +47,7 @@ export type AgentPromptInput = {
 };
 
 export type QueryContext = {
-  instructionMessages: Array<{
-    role: PromptRole;
-    content: string;
-  }>;
+  instructionMessages: PromptMessage[];
   userContext: Record<string, string | undefined>;
   systemContext: Record<string, string | undefined>;
   memorySystemContent?: string;

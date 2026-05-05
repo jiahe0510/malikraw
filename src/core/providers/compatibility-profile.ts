@@ -6,6 +6,9 @@ export type ProviderProfile = "openai" | "deepseek" | "qwen";
 export type TransportContentPart = {
   type: "text";
   text: string;
+  cache_control?: {
+    type: "ephemeral";
+  };
 };
 
 export type TransportMessage = {
@@ -38,26 +41,35 @@ const PROFILES: Record<ProviderProfile, CompatibilityProfile> = {
 export function normalizeMessagesForProfile(
   messages: readonly AgentMessage[],
   profile?: ProviderProfile,
+  options: { explicitCacheControl?: boolean } = {},
 ): TransportMessage[] {
   const compatibility = PROFILES[profile ?? "openai"];
+  const cacheControlMessageIndex = options.explicitCacheControl ? findLastCacheablePrefixIndex(messages) : -1;
 
   if (!compatibility.mergeInstructionMessages && compatibility.supportsDeveloperRole) {
     return messages
-      .map((message) => toTransportMessage(message, compatibility))
+      .map((message, index) =>
+        toTransportMessage(message, compatibility, {
+          explicitCacheControl: index === cacheControlMessageIndex,
+        })
+      )
       .filter((message): message is TransportMessage => message !== undefined);
   }
 
   const normalized: TransportMessage[] = [];
   const instructionParts: TransportContentPart[] = [];
 
-  for (const message of messages) {
+  for (const [index, message] of messages.entries()) {
+    const messageOptions = {
+      explicitCacheControl: index === cacheControlMessageIndex,
+    };
     if (message.role === "system" || message.role === "developer") {
-      instructionParts.push(...toTransportContentParts(message));
+      instructionParts.push(...toTransportContentParts(message, messageOptions));
       continue;
     }
 
     flushInstructionParts(normalized, instructionParts);
-    const transport = toTransportMessage(message, compatibility);
+    const transport = toTransportMessage(message, compatibility, messageOptions);
     if (transport) {
       normalized.push(transport);
     }
@@ -70,8 +82,9 @@ export function normalizeMessagesForProfile(
 function toTransportMessage(
   message: AgentMessage,
   compatibility: CompatibilityProfile,
+  options: { explicitCacheControl?: boolean },
 ): TransportMessage | undefined {
-  const content = toTransportContent(message);
+  const content = toTransportContent(message, options);
   if (!hasTransportContent(content)) {
     return undefined;
   }
@@ -113,32 +126,66 @@ function flushInstructionParts(
   instructionParts.length = 0;
 }
 
-function toTransportContent(message: AgentMessage): string | TransportContentPart[] {
-  const parts = toTransportContentParts(message);
+function toTransportContent(
+  message: AgentMessage,
+  options: { explicitCacheControl?: boolean },
+): string | TransportContentPart[] {
+  const parts = toTransportContentParts(message, options);
   if (parts.length === 0) {
     return "";
   }
 
-  return parts.length === 1 ? parts[0]!.text : parts;
+  return parts.length === 1 && !parts[0]?.cache_control ? parts[0]!.text : parts;
 }
 
-function toTransportContentParts(message: AgentMessage): TransportContentPart[] {
+function toTransportContentParts(
+  message: AgentMessage,
+  options: { explicitCacheControl?: boolean },
+): TransportContentPart[] {
   if (!message.contentBlocks || message.contentBlocks.length === 0) {
     const content = getMessageText(message).trim();
-    return content ? [{ type: "text", text: content }] : [];
+    return content ? [withCacheControl({ type: "text", text: content }, message.cacheControl, options)] : [];
   }
 
   return message.contentBlocks
     .map((block) => {
       if (block.type === "text") {
         const text = block.text.trim();
-        return text ? { type: "text" as const, text } : undefined;
+        return text ? withCacheControl({ type: "text" as const, text }, block.cacheControl ?? message.cacheControl, options) : undefined;
       }
 
       const text = (block.text ?? safeJsonStringify(block.data)).trim();
-      return text ? { type: "text" as const, text } : undefined;
+      return text ? withCacheControl({ type: "text" as const, text }, block.cacheControl ?? message.cacheControl, options) : undefined;
     })
     .filter((part): part is TransportContentPart => Boolean(part));
+}
+
+function withCacheControl(
+  part: TransportContentPart,
+  cacheControl: AgentMessage["cacheControl"],
+  options: { explicitCacheControl?: boolean },
+): TransportContentPart {
+  if (!options.explicitCacheControl || !cacheControl) {
+    return part;
+  }
+
+  return {
+    ...part,
+    cache_control: {
+      type: cacheControl.type,
+    },
+  };
+}
+
+function findLastCacheablePrefixIndex(messages: readonly AgentMessage[]): number {
+  let last = -1;
+  for (const [index, message] of messages.entries()) {
+    if (!message.cacheControl) {
+      break;
+    }
+    last = index;
+  }
+  return last;
 }
 
 function hasTransportContent(content: string | TransportContentPart[]): boolean {

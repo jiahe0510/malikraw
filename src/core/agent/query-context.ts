@@ -1,6 +1,6 @@
 import { injectSkillPromptBlocks } from "../skill-registry/render-skill-prompt.js";
 import type { PromptMessage } from "../skill-registry/types.js";
-import { createTextMessage, getMessageText } from "./message-content.js";
+import { createTextMessage } from "./message-content.js";
 import type { AgentMessage, AgentPromptInput, BuiltPrompt, QueryContext } from "./types.js";
 
 const LEGACY_SESSION_SUMMARY_PREFIX = "[session_summary]\n";
@@ -11,17 +11,22 @@ export function collectQueryContext(input: AgentPromptInput): QueryContext {
     {
       role: "system",
       content: input.globalPolicy.trim(),
+      cacheControl: { type: "ephemeral" },
     },
     ...toSystemMessages("Identity", input.identitySystemContent),
     ...toSystemMessages("Personality", input.personalitySystemContent),
     ...toSystemMessages("Workspace AGENT.md", input.agentSystemContent),
-    {
-      role: "developer",
-      content: buildRuntimeContextBlock(input.toolSummary, input.stateSummary, input.memorySummary),
-    },
   ];
 
-  const instructionMessages = injectSkillPromptBlocks(baseMessages, input.activeSkills);
+  const instructionMessages = [
+    ...injectSkillPromptBlocks(baseMessages, input.activeSkills),
+    {
+      role: "developer" as const,
+      content: buildRuntimeContextBlock(input.toolSummary, input.stateSummary, input.memorySummary),
+      cacheControl: { type: "ephemeral" as const },
+    },
+    ...toDeveloperMessages("Memory Usage Guidance", input.memorySystemContent),
+  ];
 
   return {
     instructionMessages,
@@ -36,14 +41,18 @@ export function collectQueryContext(input: AgentPromptInput): QueryContext {
 }
 
 export function finalizeQueryContext(context: QueryContext): BuiltPrompt {
-  const instructionMessages = appendSystemContext(
-    context.instructionMessages,
-    context.systemContext,
-  );
+  const instructionMessages = [
+    ...context.instructionMessages,
+    ...missingMemoryGuidanceMessages(context.instructionMessages, context.memorySystemContent),
+  ];
+  const dynamicRuntimeContext = buildDynamicRuntimeContextBlock(context.systemContext);
   const userContextReminder = buildUserContextReminder(context);
 
   const messages: AgentMessage[] = [
-    ...instructionMessages.map((message) => createTextMessage(message.role, message.content)),
+    ...instructionMessages.map((message) =>
+      createTextMessage(message.role, message.content, { cacheControl: message.cacheControl })
+    ),
+    ...(dynamicRuntimeContext ? [createTextMessage("developer", dynamicRuntimeContext)] : []),
     ...(userContextReminder ? [createTextMessage("user", userContextReminder)] : []),
     ...context.history,
     createTextMessage("user", context.userRequest),
@@ -55,37 +64,32 @@ export function finalizeQueryContext(context: QueryContext): BuiltPrompt {
   };
 }
 
+function missingMemoryGuidanceMessages(
+  instructionMessages: readonly PromptMessage[],
+  memorySystemContent: string | undefined,
+): PromptMessage[] {
+  if (instructionMessages.some((message) => message.content.startsWith("Memory Usage Guidance"))) {
+    return [];
+  }
+
+  return toDeveloperMessages("Memory Usage Guidance", memorySystemContent);
+}
+
 export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
   return finalizeQueryContext(collectQueryContext(input));
 }
 
-function appendSystemContext(
-  messages: readonly PromptMessage[],
-  systemContext: Record<string, string | undefined>,
-): PromptMessage[] {
+function buildDynamicRuntimeContextBlock(systemContext: Record<string, string | undefined>): string | undefined {
   const systemContextLines = toContextLines(systemContext);
   if (systemContextLines.length === 0) {
-    return [...messages];
+    return undefined;
   }
 
-  return messages.map((message, index) => {
-    if (message.role !== "developer" || index !== 0 && messages[index - 1]?.role === "developer") {
-      return message;
-    }
-
-    if (!getMessageText(message).startsWith("Runtime Context")) {
-      return message;
-    }
-
-    return {
-      ...message,
-      content: [
-        getMessageText(message),
-        "- System context:",
-        ...systemContextLines.map((line) => `  - ${line}`),
-      ].join("\n"),
-    };
-  });
+  return [
+    "Dynamic Runtime Context",
+    "- System context:",
+    ...systemContextLines.map((line) => `  - ${line}`),
+  ].join("\n");
 }
 
 function buildRuntimeContextBlock(
@@ -111,12 +115,25 @@ function toSystemMessages(title: string, content: string | undefined): PromptMes
   return [{
     role: "system",
     content: [title, trimmed].join("\n\n"),
+    cacheControl: { type: "ephemeral" },
+  }];
+}
+
+function toDeveloperMessages(title: string, content: string | undefined): PromptMessage[] {
+  const trimmed = content?.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  return [{
+    role: "developer",
+    content: [title, trimmed].join("\n\n"),
+    cacheControl: { type: "ephemeral" },
   }];
 }
 
 function buildUserContextReminder(context: QueryContext): string | undefined {
   const sections = [
-    ["Memory Guidance", context.memorySystemContent],
     ["Retrieved Memory", context.relevantMemoryBlock],
     ...Object.entries(context.userContext),
   ]

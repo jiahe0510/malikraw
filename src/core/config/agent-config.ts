@@ -9,6 +9,7 @@ export type OpenAICompatibleConfig = {
   apiKey: string;
   model: string;
   profile?: ProviderProfile;
+  promptCache?: PromptCacheConfig;
   temperature?: number;
   contextWindow: number;
   maxTokens?: number;
@@ -17,6 +18,10 @@ export type OpenAICompatibleConfig = {
     thresholdTokens: number;
     targetTokens: number;
   };
+};
+
+export type PromptCacheConfig = {
+  type: "anthropic_cache_control";
 };
 
 const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
@@ -56,6 +61,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
       apiKey: providerConfig.apiKey ?? "dummy",
       model: requireStoredValue(providerConfig.model, "providers[].model"),
       profile: providerConfig.profile,
+      ...(providerConfig.promptCache ? { promptCache: providerConfig.promptCache } : {}),
       temperature: providerConfig.temperature ?? 0.2,
       contextWindow: providerConfig.contextWindow ?? 32_768,
       maxTokens: providerConfig.maxTokens ?? 4096,
@@ -196,6 +202,7 @@ function toModelConfig(providerConfig: {
   apiKey?: string;
   model: string;
   profile?: ProviderProfile;
+  promptCache?: PromptCacheConfig;
   temperature?: number;
   contextWindow?: number;
   maxTokens?: number;
@@ -207,6 +214,7 @@ function toModelConfig(providerConfig: {
     apiKey: providerConfig.apiKey ?? "dummy",
     model: requireStoredValue(providerConfig.model, "providers[].model"),
     profile: providerConfig.profile,
+    ...(providerConfig.promptCache ? { promptCache: providerConfig.promptCache } : {}),
     temperature: providerConfig.temperature ?? 0.2,
     contextWindow,
     maxTokens,

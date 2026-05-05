@@ -41,12 +41,18 @@ export type SkillSelectionResult =
 export type PromptMessage = {
   role: PromptRole;
   content: string;
+  cacheControl?: {
+    type: "ephemeral";
+  };
 };
 
 export type SkillPromptBlock = {
   role: PromptRole;
   content: string;
   skills: string[];
+  cacheControl?: {
+    type: "ephemeral";
+  };
 };
 
 export function defineSkill(skill: SkillSpec): SkillSpec {

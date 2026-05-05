@@ -10,7 +10,7 @@ export function renderSkillPromptBlocks(
 ): SkillPromptBlock[] {
   const blocksByRole = new Map<SkillPromptBlock["role"], SelectedSkill[]>();
 
-  for (const skill of skills) {
+  for (const skill of sortSkillsByName(skills)) {
     const existing = blocksByRole.get(skill.promptRole) ?? [];
     existing.push(skill);
     blocksByRole.set(skill.promptRole, existing);
@@ -38,6 +38,7 @@ export function injectSkillPromptBlocks(
     result.push({
       role: block.role,
       content: block.content,
+      cacheControl: { type: "ephemeral" },
     });
   }
 
@@ -70,6 +71,10 @@ function renderRoleBlock(
   }
 
   return lines.join("\n");
+}
+
+function sortSkillsByName(skills: readonly SelectedSkill[]): SelectedSkill[] {
+  return [...skills].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function toBulletLines(instruction: string): string[] {

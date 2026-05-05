@@ -3,14 +3,24 @@ import type { AgentMessage, AgentContentBlock, MessageRole } from "./types.js";
 export function createTextMessage(
   role: MessageRole,
   content: string,
-  options: Pick<AgentMessage, "toolCallId" | "toolName"> = {},
+  options: Pick<AgentMessage, "toolCallId" | "toolName" | "cacheControl"> = {},
 ): AgentMessage {
-  return {
+  const message: AgentMessage = {
     role,
     content,
     contentBlocks: [{ type: "text", text: content }],
-    ...options,
   };
+  if (options.toolCallId) {
+    message.toolCallId = options.toolCallId;
+  }
+  if (options.toolName) {
+    message.toolName = options.toolName;
+  }
+  if (options.cacheControl) {
+    message.cacheControl = options.cacheControl;
+  }
+
+  return message;
 }
 
 export function createJsonMessage(

@@ -104,6 +104,58 @@ test("OpenAICompatibleModel sends block-aware content parts in request bodies", 
   }
 });
 
+test("OpenAICompatibleModel emits explicit cache_control when configured", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | undefined;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: "ok",
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const model = new OpenAICompatibleModel({
+      baseURL: "https://example.invalid/v1",
+      apiKey: "dummy",
+      model: "test-model",
+      promptCache: { type: "anthropic_cache_control" },
+      contextWindow: 8192,
+      compact: {
+        thresholdTokens: 4096,
+        targetTokens: 2048,
+      },
+    });
+
+    await model.generate({
+      messages: [{
+        role: "system",
+        content: "stable prefix",
+        cacheControl: { type: "ephemeral" },
+      }],
+      tools: [],
+    });
+
+    assert.deepEqual(requestBody?.messages, [{
+      role: "system",
+      content: [{
+        type: "text",
+        text: "stable prefix",
+        cache_control: { type: "ephemeral" },
+      }],
+    }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("OpenAICompatibleModel strips leaked planning preambles from final output", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>

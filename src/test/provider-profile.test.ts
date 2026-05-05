@@ -57,3 +57,44 @@ test("openai profile preserves block content as transport content parts", () => 
     name: "read_file",
   }]);
 });
+
+test("profile normalization emits cache_control only when explicitly enabled", () => {
+  const messages: AgentMessage[] = [
+    {
+      role: "system",
+      content: "stable",
+      contentBlocks: [{ type: "text", text: "stable" }],
+      cacheControl: { type: "ephemeral" },
+    },
+  ];
+
+  assert.deepEqual(normalizeMessagesForProfile(messages, "openai"), [
+    { role: "system", content: "stable" },
+  ]);
+
+  assert.deepEqual(normalizeMessagesForProfile(messages, "openai", { explicitCacheControl: true }), [
+    {
+      role: "system",
+      content: [{ type: "text", text: "stable", cache_control: { type: "ephemeral" } }],
+    },
+  ]);
+});
+
+test("profile normalization places explicit cache_control at the stable prefix boundary", () => {
+  const messages: AgentMessage[] = [
+    { role: "system", content: "policy", cacheControl: { type: "ephemeral" } },
+    { role: "developer", content: "skills", cacheControl: { type: "ephemeral" } },
+    { role: "developer", content: "dynamic" },
+    { role: "user", content: "hi" },
+  ];
+
+  assert.deepEqual(normalizeMessagesForProfile(messages, "openai", { explicitCacheControl: true }), [
+    { role: "system", content: "policy" },
+    {
+      role: "developer",
+      content: [{ type: "text", text: "skills", cache_control: { type: "ephemeral" } }],
+    },
+    { role: "developer", content: "dynamic" },
+    { role: "user", content: "hi" },
+  ]);
+});
