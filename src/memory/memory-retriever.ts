@@ -43,7 +43,7 @@ export class MemoryRetriever {
       query: input.query,
       mode,
       contextWindow: this.modelConfig.contextWindow,
-      maxTokens: this.modelConfig.maxTokens ?? 4096,
+      maxTokens: this.modelConfig.maxTokens ?? 32_000,
     });
     const compiledChars = compiledBlock.length;
 

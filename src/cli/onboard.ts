@@ -136,11 +136,11 @@ async function collectProvider(existingProvider: StoredProviderConfig | undefine
     ) ?? 0.2,
     contextWindow: await promptRequiredNumber(
       "Context window",
-      String(existingProvider?.contextWindow ?? 32768),
+      String(existingProvider?.contextWindow ?? 200000),
     ),
     maxTokens: await promptRequiredNumber(
       "Max output tokens",
-      String(existingProvider?.maxTokens ?? 4096),
+      String(existingProvider?.maxTokens ?? 32000),
     ),
   });
 }

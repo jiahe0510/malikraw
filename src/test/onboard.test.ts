@@ -39,8 +39,8 @@ test("formatProviderSummary shows existing provider details with a masked key", 
     apiKey: "sk-1234567890",
     model: "gpt-4.1-mini",
     profile: "openai",
-    contextWindow: 32768,
-    maxTokens: 4096,
+    contextWindow: 200000,
+    maxTokens: 32000,
   });
 
   assert.match(summary, /openai \| gpt-4\.1-mini \| api\.openai\.com\/v1 \| key=sk-\*\*\*890/);

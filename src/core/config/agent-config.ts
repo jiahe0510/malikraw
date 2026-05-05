@@ -25,6 +25,11 @@ export type PromptCacheConfig = {
 };
 
 const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_CONTEXT_WINDOW = 200_000;
+const DEFAULT_MAX_TOKENS = 32_000;
+const COMPACT_SAFETY_MARGIN_TOKENS = 1024;
+const DEFAULT_COMPACT_THRESHOLD_RATIO = 0.9;
+const DEFAULT_COMPACT_TARGET_RATIO = 0.15;
 
 export type RuntimeConfig = {
   model: OpenAICompatibleConfig;
@@ -63,12 +68,18 @@ export function loadRuntimeConfig(): RuntimeConfig {
       profile: providerConfig.profile,
       ...(providerConfig.promptCache ? { promptCache: providerConfig.promptCache } : {}),
       temperature: providerConfig.temperature ?? 0.2,
-      contextWindow: providerConfig.contextWindow ?? 32_768,
-      maxTokens: providerConfig.maxTokens ?? 4096,
+      contextWindow: providerConfig.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+      maxTokens: providerConfig.maxTokens ?? DEFAULT_MAX_TOKENS,
       requestTimeoutMs: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       compact: {
-        thresholdTokens: defaultCompactThreshold(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
-        targetTokens: defaultCompactTarget(providerConfig.contextWindow ?? 32_768, providerConfig.maxTokens ?? 4096),
+        thresholdTokens: defaultCompactThreshold(
+          providerConfig.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+          providerConfig.maxTokens ?? DEFAULT_MAX_TOKENS,
+        ),
+        targetTokens: defaultCompactTarget(
+          providerConfig.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+          providerConfig.maxTokens ?? DEFAULT_MAX_TOKENS,
+        ),
       },
     },
     workspaceRoot: stored.workspace?.workspaceRoot || getWorkspaceRoot(),
@@ -207,8 +218,8 @@ function toModelConfig(providerConfig: {
   contextWindow?: number;
   maxTokens?: number;
 }): OpenAICompatibleConfig {
-  const contextWindow = providerConfig.contextWindow ?? 32_768;
-  const maxTokens = providerConfig.maxTokens ?? 4096;
+  const contextWindow = providerConfig.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+  const maxTokens = providerConfig.maxTokens ?? DEFAULT_MAX_TOKENS;
   return {
     baseURL: requireStoredValue(providerConfig.baseURL, "providers[].baseURL"),
     apiKey: providerConfig.apiKey ?? "dummy",
@@ -227,12 +238,15 @@ function toModelConfig(providerConfig: {
 }
 
 function defaultCompactThreshold(contextWindow: number, maxTokens: number): number {
-  const availableInput = Math.max(1024, contextWindow - maxTokens - 1024);
-  return Math.max(1024, Math.floor(availableInput * 0.85));
+  return Math.max(1024, Math.floor(defaultAvailableInputTokens(contextWindow, maxTokens) * DEFAULT_COMPACT_THRESHOLD_RATIO));
 }
 
 function defaultCompactTarget(contextWindow: number, maxTokens: number): number {
-  return Math.max(768, Math.floor(defaultCompactThreshold(contextWindow, maxTokens) * 0.6));
+  return Math.max(768, Math.floor(defaultAvailableInputTokens(contextWindow, maxTokens) * DEFAULT_COMPACT_TARGET_RATIO));
+}
+
+function defaultAvailableInputTokens(contextWindow: number, maxTokens: number): number {
+  return Math.max(1024, contextWindow - maxTokens - COMPACT_SAFETY_MARGIN_TOKENS);
 }
 
 function normalizeMemoryConfig(stored: StoredMemoryConfig | undefined): MemoryConfig {

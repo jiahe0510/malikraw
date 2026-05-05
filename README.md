@@ -60,7 +60,7 @@ Current onboarding defaults:
 
 - one agent only: `main`
 - workspace is fixed to `~/.malikraw/workspace`
-- model generation defaults are `temperature=0.2`, `contextWindow=32768`, `maxTokens=4096`
+- model generation defaults are `temperature=0.2`, `contextWindow=200000`, `maxTokens=32000`
 - HTTP channel is disabled by default
 - Feishu channel only requires `appId` and `appSecret`
 - skills / tools / channels are selected with space-toggle prompts
