@@ -1,4 +1,4 @@
-import { collectQueryContext, finalizeQueryContext, getVisibleToolNames } from "./build-prompt.js";
+import { collectQueryContext, finalizeQueryContext, getVisibleToolNames } from "./query-context.js";
 import { createTextMessage, getMessageText } from "./message-content.js";
 import { recordRuntimeObservation } from "../observability/observability.js";
 import { executeToolCalls } from "../tool-registry/tool-orchestrator.js";

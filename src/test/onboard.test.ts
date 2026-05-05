@@ -11,19 +11,16 @@ import {
 
 test("resolveDefaultChannelId prefers feishu when available", () => {
   const channelId = resolveDefaultChannelId([
-    { id: "http", type: "http", agentId: "main" },
     { id: "feishu", type: "feishu", appId: "a", appSecret: "b", agentId: "main" },
   ]);
 
   assert.equal(channelId, "feishu");
 });
 
-test("resolveDefaultChannelId falls back to first channel id", () => {
-  const channelId = resolveDefaultChannelId([
-    { id: "http", type: "http", agentId: "main" },
-  ]);
+test("resolveDefaultChannelId returns empty when no channel is configured", () => {
+  const channelId = resolveDefaultChannelId([]);
 
-  assert.equal(channelId, "http");
+  assert.equal(channelId, "");
 });
 
 test("maskSecret hides the middle of stored keys", () => {
@@ -48,11 +45,10 @@ test("formatProviderSummary shows existing provider details with a masked key", 
 
 test("formatChannelsSummary shows configured channels", () => {
   const summary = formatChannelsSummary([
-    { id: "http", type: "http", agentId: "main" },
     { id: "feishu", type: "feishu", agentId: "main", appId: "app", appSecret: "secret" },
   ]);
 
-  assert.equal(summary, "http:http agent=main, feishu:feishu agent=main");
+  assert.equal(summary, "feishu:feishu agent=main");
 });
 
 test("formatToolsSummary shows enabled tools with masked keys", () => {

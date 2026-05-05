@@ -1,5 +1,5 @@
 import { injectSkillPromptBlocks } from "../skill-registry/render-skill-prompt.js";
-import type { PromptMessage } from "../skill-registry/types.js";
+import type { PromptMessage, SelectedSkill } from "../skill-registry/types.js";
 import { createTextMessage } from "./message-content.js";
 import type { AgentMessage, AgentPromptInput, BuiltPrompt, QueryContext } from "./types.js";
 
@@ -77,6 +77,13 @@ function missingMemoryGuidanceMessages(
 
 export function buildPrompt(input: AgentPromptInput): BuiltPrompt {
   return finalizeQueryContext(collectQueryContext(input));
+}
+
+export function getVisibleToolNames(
+  _activeSkills: readonly SelectedSkill[],
+  allToolNames: readonly string[],
+): string[] {
+  return [...allToolNames];
 }
 
 function buildDynamicRuntimeContextBlock(systemContext: Record<string, string | undefined>): string | undefined {

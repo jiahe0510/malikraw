@@ -16,7 +16,7 @@
     "malikraw": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "onboard": "node dist/cli.js onboard",
     "cli": "node dist/cli.js",
@@ -24,7 +24,6 @@
     "stop": "node dist/cli.js stop",
     "restart": "node dist/cli.js restart",
     "status": "node dist/cli.js status",
-    "migrate": "node dist/cli.js migrate",
     "serve": "node dist/cli.js serve",
     "tui": "node dist/cli.js tui",
     "test": "npm run build && node --test $(find dist/test -type f -name '*.test.js')",

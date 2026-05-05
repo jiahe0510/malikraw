@@ -19,7 +19,7 @@ import { getWorkspaceRoot } from "../runtime/workspace-context.js";
 import { restartBackgroundService } from "./service-manager.js";
 import { promptMultiSelect, promptSelectWithDefault, promptText } from "./terminal-ui.js";
 
-type ChannelSelection = "http" | "feishu";
+type ChannelSelection = "feishu";
 type ExistingMultiValue = "__use_existing__";
 type ProviderSelection = ProviderProfile | "__existing__";
 type MultiSelectResult<T extends string> = {
@@ -160,9 +160,6 @@ async function collectChannels(
   defaultAgentId: string,
   agentIds: string[],
 ): Promise<StoredChannelConfig[]> {
-  const existingHttp = existingChannels.find((channel): channel is Extract<StoredChannelConfig, { type: "http" }> =>
-    channel.type === "http"
-  );
   const existingFeishu = existingChannels.find(
     (channel): channel is StoredFeishuChannelConfig => channel.type === "feishu",
   );
@@ -170,7 +167,6 @@ async function collectChannels(
     "Select channels",
     [
       { label: "feishu", value: "feishu" },
-      { label: "http", value: "http" },
     ],
     [],
     existingChannels,
@@ -188,22 +184,6 @@ async function collectChannels(
 
   if (selectedChannels.includes("feishu")) {
     channels.push(await collectFeishuChannel(existingFeishu, defaultAgentId, agentIds));
-  }
-
-  if (selectedChannels.includes("http")) {
-    const agentId = await promptSelectWithDefault(
-      "HTTP channel agent",
-      agentIds.map((value) => ({
-        label: value,
-        value,
-      })),
-      existingHttp?.agentId || defaultAgentId,
-    );
-    channels.push({
-      id: await promptText("HTTP channel id", existingHttp?.id || "http"),
-      type: "http",
-      agentId,
-    });
   }
 
   return channels;
@@ -253,9 +233,7 @@ async function collectFeishuChannel(
 }
 
 export function resolveDefaultChannelId(channels: StoredChannelConfig[]): string {
-  return channels.find((channel) => channel.type === "feishu")?.id
-    ?? channels[0]?.id
-    ?? "";
+  return channels[0]?.id ?? "";
 }
 
 async function collectToolsConfig(existingTools: StoredToolsConfig | undefined): Promise<StoredToolsConfig> {
@@ -427,13 +405,7 @@ export function formatChannelsSummary(channels: StoredChannelConfig[]): string {
   }
 
   return channels
-    .map((channel) => {
-      if (channel.type === "feishu") {
-        return `feishu:${channel.id} agent=${channel.agentId}`;
-      }
-
-      return `${channel.type}:${channel.id} agent=${channel.agentId}`;
-    })
+    .map((channel) => `feishu:${channel.id} agent=${channel.agentId}`)
     .join(", ");
 }
 

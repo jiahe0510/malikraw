@@ -17,7 +17,6 @@ import type { RuntimeConfig } from "../core/config/agent-config.js";
 import type { StoredFeishuChannelConfig } from "../core/config/config-store.js";
 import type { AgentLoopEvent, AgentMessage } from "../core/agent/types.js";
 import { createMemoryService } from "../memory/memory-service.js";
-import { runMemoryMigrations } from "../memory/migrate.js";
 import { compactContextIfNeeded, reactivelyCompactMessages } from "./context-compactor.js";
 import { BUILT_IN_MEMORY_GUIDANCE, buildBuiltInCompactionPrompt } from "./internal-prompts.js";
 import { readBundledPersonalityFile } from "./system-template-context.js";
@@ -126,7 +125,6 @@ export async function createAgentRuntime(config: RuntimeConfig): Promise<AgentRu
 async function bootstrapRuntimeDependencies(config: RuntimeConfig): Promise<RuntimeDependencies> {
   setWorkspaceRoot(config.workspaceRoot);
   await ensureWorkspaceInitialized();
-  await runMemoryMigrations();
 
   const skillRegistry = new SkillRegistry();
   const skills = await loadSkillsFromDirectory(getSkillsDirectory());

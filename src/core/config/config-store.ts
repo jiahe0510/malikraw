@@ -49,12 +49,6 @@ export type StoredWorkspaceConfig = {
   workspaceRoot: string;
 };
 
-export type StoredHttpChannelConfig = {
-  id: string;
-  type: "http";
-  agentId?: string;
-};
-
 export type StoredFeishuChannelConfig = {
   id: string;
   type: "feishu";
@@ -68,7 +62,7 @@ export type StoredFeishuChannelConfig = {
   autoReplyInThread?: boolean;
 };
 
-export type StoredChannelConfig = StoredHttpChannelConfig | StoredFeishuChannelConfig;
+export type StoredChannelConfig = StoredFeishuChannelConfig;
 
 export type StoredChannelsConfig = {
   defaultChannelId: string;

@@ -10,7 +10,6 @@ import {
 } from "./cli/service-manager.js";
 import { startGatewayServer } from "./gateway/server.js";
 import { runOnboardWizard } from "./cli/onboard.js";
-import { runMemoryMigrations } from "./memory/migrate.js";
 import { runTui } from "./tui.js";
 
 async function main(): Promise<void> {
@@ -46,13 +45,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (command === "migrate") {
-    loadRuntimeConfig();
-    await runMemoryMigrations();
-    console.log("memory migrations applied");
-    return;
-  }
-
   if (command === "tui") {
     await runTui();
     return;
@@ -68,7 +60,6 @@ function printHelp(): void {
   console.log("  stop      stop the background gateway service");
   console.log("  restart   restart the background gateway service");
   console.log("  status    show background gateway service status");
-  console.log("  migrate   initialize local memory storage");
   console.log("  tui       start the local tui channel");
 }
 

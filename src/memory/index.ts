@@ -6,6 +6,5 @@ export * from "./memory-retriever.js";
 export * from "./memory-service.js";
 export * from "./memory-writer.js";
 export * from "./manifest-store.js";
-export * from "./migrate.js";
 export * from "./extractors/semantic-extractor.js";
 export * from "./extractors/episode-extractor.js";

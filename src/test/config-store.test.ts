@@ -44,12 +44,8 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
         workspaceRoot: path.join(malikrawHome, "workspace"),
       },
       channels: {
-        defaultChannelId: "http",
+        defaultChannelId: "feishu",
         channels: [{
-          id: "http",
-          type: "http",
-          agentId: "primary",
-        }, {
           id: "feishu",
           type: "feishu",
           appId: "cli_a",
@@ -94,10 +90,6 @@ test("loadRuntimeConfig reads persisted malikraw config files", async () => {
     assert.deepEqual(config.memory, {});
     assert.equal(config.defaultAgentId, "primary");
     assert.deepEqual(config.channels, [{
-      id: "http",
-      type: "http",
-      agentId: "primary",
-    }, {
       id: "feishu",
       type: "feishu",
       appId: "cli_a",
@@ -169,12 +161,8 @@ test("loadRuntimeConfig ignores OPENAI environment variables and uses stored con
         workspaceRoot: path.join(malikrawHome, "workspace"),
       },
       channels: {
-        defaultChannelId: "http",
-        channels: [{
-          id: "http",
-          type: "http",
-          agentId: "primary",
-        }],
+        defaultChannelId: "",
+        channels: [],
       },
       tools: {},
       memory: {},
@@ -196,11 +184,7 @@ test("loadRuntimeConfig ignores OPENAI environment variables and uses stored con
     assert.equal(config.model.maxTokens, 32000);
     assert.equal(config.model.requestTimeoutMs, 1800000);
     assert.equal(config.defaultAgentId, "primary");
-    assert.deepEqual(config.channels, [{
-      id: "http",
-      type: "http",
-      agentId: "primary",
-    }]);
+    assert.deepEqual(config.channels, []);
   } finally {
     if (previousHome === undefined) {
       delete process.env.MALIKRAW_HOME;
@@ -254,12 +238,8 @@ test("loadRuntimeConfig always enables local memory without database URLs", asyn
         workspaceRoot: path.join(malikrawHome, "workspace"),
       },
       channels: {
-        defaultChannelId: "http",
-        channels: [{
-          id: "http",
-          type: "http",
-          agentId: "primary",
-        }],
+        defaultChannelId: "",
+        channels: [],
       },
       tools: {},
       memory: {

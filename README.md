@@ -61,7 +61,6 @@ Current onboarding defaults:
 - one agent only: `main`
 - workspace is fixed to `~/.malikraw/workspace`
 - model generation defaults are `temperature=0.2`, `contextWindow=200000`, `maxTokens=32000`
-- HTTP channel is disabled by default
 - Feishu channel only requires `appId` and `appSecret`
 - skills / tools / channels are selected with space-toggle prompts
 
@@ -83,14 +82,6 @@ Health check:
 
 ```bash
 curl http://127.0.0.1:5050/health
-```
-
-Example chat request:
-
-```bash
-curl -X POST http://127.0.0.1:5050/api/chat \
-  -H 'content-type: application/json' \
-  -d '{"message":"read the workspace status","channelId":"http","sessionId":"demo"}'
 ```
 
 ## Channels And Message Dispatch
@@ -287,7 +278,7 @@ npm test
 
 - Default workspace path is `~/.malikraw/workspace`
 - Default workspace prompt file is `~/.malikraw/workspace/AGENT.md`
-- Default memory file is `~/.malikraw/workspace/MEMORY.md`
+- Runtime memory is stored under `~/.malikraw/memory`
 - Config files live under `~/.malikraw/config/`
 - Bundled skills live under `skills/`
 - System prompt templates live under `templates/system/`

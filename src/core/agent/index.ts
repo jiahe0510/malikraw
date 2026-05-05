@@ -1,4 +1,4 @@
-export { buildPrompt, collectQueryContext, finalizeQueryContext, getVisibleToolNames } from "./build-prompt.js";
+export { buildPrompt, collectQueryContext, finalizeQueryContext, getVisibleToolNames } from "./query-context.js";
 export { createJsonMessage, createTextMessage, getMessageText, withNormalizedContent } from "./message-content.js";
 export { runAgentLoop, runAgentLoopEvents } from "./run-agent-loop.js";
 export type {

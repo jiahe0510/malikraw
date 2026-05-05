@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import path from "node:path";
 
 import { loadRuntimeConfig } from "../core/config/agent-config.js";
@@ -52,40 +52,6 @@ export async function startGatewayServer(config: RuntimeConfig): Promise<void> {
         });
       }
 
-      if (request.method === "POST" && request.url === "/api/chat") {
-        const body = await readJsonBody(request);
-        const message = typeof body.message === "string" ? body.message.trim() : "";
-        const channelId = typeof body.channelId === "string" ? body.channelId.trim() : "http";
-        const agentId = typeof body.agentId === "string" ? body.agentId.trim() : resolveChannelAgent(config, channelId);
-        const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "default";
-        const userId = typeof body.userId === "string" ? body.userId.trim() : undefined;
-        const projectId = typeof body.projectId === "string" ? body.projectId.trim() : undefined;
-        if (!message) {
-          return sendJson(response, 400, { error: 'Field "message" is required.' });
-        }
-
-        const result = await gateway.handleMessage({
-          session: {
-            agentId,
-            userId,
-            projectId,
-            channelId,
-            sessionId,
-          },
-          content: message,
-        });
-        return sendJson(response, 200, {
-          ok: true,
-          output: result.output,
-          visibleToolNames: result.visibleToolNames,
-          agentId,
-          userId,
-          projectId,
-          channelId,
-          sessionId,
-        });
-      }
-
       return sendJson(response, 404, { error: "Not found." });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -136,20 +102,6 @@ function resolveChannelAgent(config: RuntimeConfig, channelId: string): string {
 
 function describeChannel(config: RuntimeConfig, channelId: string): string {
   return config.channels.find((channel) => channel.id === channelId)?.type ?? "unknown";
-}
-
-async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-
-  const raw = Buffer.concat(chunks).toString("utf8");
-  if (!raw) {
-    return {};
-  }
-
-  return JSON.parse(raw) as Record<string, unknown>;
 }
 
 function sendJson(

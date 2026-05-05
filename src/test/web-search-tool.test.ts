@@ -127,8 +127,8 @@ test("web_search calls Brave API and returns compact results", async () => {
       workspaceRoot: malikrawHome,
     },
     channels: {
-      defaultChannelId: "http",
-      channels: [{ id: "http", type: "http" }],
+      defaultChannelId: "",
+      channels: [],
     },
     tools: {
       braveSearchApiKey: "test-key",
@@ -243,8 +243,8 @@ test("web_search can call Brave news endpoint", async () => {
       workspaceRoot: malikrawHome,
     },
     channels: {
-      defaultChannelId: "http",
-      channels: [{ id: "http", type: "http" }],
+      defaultChannelId: "",
+      channels: [],
     },
     tools: {
       braveSearchApiKey: "test-key",
